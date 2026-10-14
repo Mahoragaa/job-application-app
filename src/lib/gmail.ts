@@ -1,5 +1,11 @@
 import { google, gmail_v1 } from "googleapis";
 import { prisma } from "./prisma";
+import { chunk, mapWithConcurrency } from "./concurrency";
+import {
+  ATS_SENDER_DOMAINS,
+  EXCLUDED_LINKEDIN_SENDERS,
+  EXCLUDED_SENDER_DOMAINS,
+} from "./senders";
 
 // ─── Token Management ────────────────────────────
 
@@ -49,12 +55,13 @@ export async function getValidAccessToken(userId: string): Promise<string> {
     throw new Error(`Token refresh failed: ${data.error_description || data.error}`);
   }
 
-  // Persist the new token
+  // Persist the new token (Google occasionally rotates the refresh token too)
   await prisma.account.update({
     where: { id: account.id },
     data: {
       access_token: data.access_token,
-      expires_at: Math.floor(Date.now() / 1000) + data.expires_in,
+      expires_at: Math.floor(Date.now() / 1000) + (Number(data.expires_in) || 3600),
+      ...(data.refresh_token ? { refresh_token: data.refresh_token } : {}),
     },
   });
 
@@ -128,6 +135,35 @@ export async function ensureLabels(
   return { appliedLabelId, repliesLabelId };
 }
 
+// ─── Search Query ────────────────────────────────
+
+/**
+ * Builds the Gmail search query. `after`/`before` are epoch SECONDS,
+ * which Gmail interprets unambiguously (no timezone guessing).
+ */
+export function buildJobSearchQuery(after: number, before: number): string {
+  return [
+    `after:${after}`,
+    `before:${before}`,
+    `{`,
+    // Application confirmations
+    `subject:(application OR applied OR applying OR candidacy OR candidature OR "thank you for applying" OR "application received" OR "application submitted")`,
+    // Recruiter replies
+    `subject:(interview OR "next steps" OR offer OR "move forward" OR "shortlisted" OR "selected" OR rejected OR "regret to inform" OR "unfortunately")`,
+    // Recruiting teams + ATS platforms
+    `from:(careers OR recruiting OR recruitment OR talent OR hiring OR hr OR jobs)`,
+    `from:(${ATS_SENDER_DOMAINS.join(" OR ")})`,
+    `}`,
+    EXCLUDED_SENDER_DOMAINS.map((d) => `-from:${d}`).join(" "),
+    EXCLUDED_LINKEDIN_SENDERS.map((d) => `-from:${d}`).join(" "),
+    // Job board noise
+    `-subject:"job alert" -subject:"jobs for you" -subject:"new jobs" -subject:"is hiring"`,
+    // OTP / transactional
+    `-subject:OTP -subject:"verify your" -subject:"verification code"`,
+    `-subject:"order confirmed" -subject:"order delivered" -subject:"your order"`,
+  ].join(" ");
+}
+
 // ─── Email Fetching ──────────────────────────────
 
 export interface EmailData {
@@ -136,113 +172,116 @@ export interface EmailData {
   subject: string;
   from: string;
   snippet: string;
-  date: string;
+  /** Gmail internalDate — always present, unlike the Date header. */
+  date: Date;
 }
 
 /**
- * Fetches up to `maxResults` emails within an optional date range.
- * fromDate / toDate are ISO date strings (YYYY-MM-DD).
- * If omitted, defaults to the last 6 months up to today.
+ * Lists message IDs matching `q`, following pagination up to `cap` IDs.
+ * Gmail returns newest first.
  */
-export async function fetchEmails(
+export async function listMessageIds(
   gmail: gmail_v1.Gmail,
-  maxResults = 100,
-  fromDate?: string,
-  toDate?: string
-): Promise<EmailData[]> {
-  // Build date range for Gmail query
-  const after = fromDate ? new Date(fromDate) : (() => { const d = new Date(); d.setDate(d.getDate() - 180); return d; })();
-  const before = toDate ? new Date(toDate) : new Date();
-  // Gmail before: is exclusive, so add 1 day so the selected "to" date is included
-  const beforePlusOne = new Date(before);
-  beforePlusOne.setDate(beforePlusOne.getDate() + 1);
+  q: string,
+  cap = 5000
+): Promise<{ ids: string[]; truncated: boolean }> {
+  const ids: string[] = [];
+  let pageToken: string | undefined;
 
-  const fmt = (d: Date) =>
-    `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}`;
-
-  const afterStr = fmt(after);
-  const beforeStr = fmt(beforePlusOne);
-
-  // Gmail search query that pre-filters for likely job-related emails
-  const jobSearchQuery = [
-    `after:${afterStr}`,
-    `before:${beforeStr}`,
-    `{`,
-    // Application confirmations
-    `subject:(application OR applied OR "thank you for applying" OR "application received" OR "application submitted")`,
-    // Recruiter replies
-    `subject:(interview OR "next steps" OR offer OR "move forward" OR "shortlisted" OR "selected" OR rejected OR "regret to inform" OR "unfortunately")`,
-    // Common job-related from addresses
-    `from:(careers OR recruiting OR talent OR hiring OR hr OR jobs OR noreply)`,
-    `}`,
-    // Exclude known consumer services (broad domain matching)
-    `-from:uber.com -from:ubereats.com -from:zomato.com -from:swiggy.com`,
-    `-from:amazon.in -from:amazon.com -from:flipkart.com -from:myntra.com`,
-    `-from:paytm.com -from:phonepe.com -from:razorpay.com`,
-    // Exclude course/education platforms
-    `-from:internshala.com -from:coursera.org -from:udemy.com -from:edx.org`,
-    `-from:upgrad.com -from:simplilearn.com -from:unacademy.com`,
-    // Exclude job board noise
-    `-from:linkedin.com -from:naukri.com -from:indeed.com -from:glassdoor.com`,
-    `-subject:"job alert" -subject:"jobs for you" -subject:"new jobs"`,
-    // Exclude OTP/transactional
-    `-subject:OTP -subject:"verify your" -subject:"verification code"`,
-    `-subject:"order confirmed" -subject:"order delivered" -subject:"your order"`,
-  ].join(" ");
-
-  const { data } = await gmail.users.messages.list({
-    userId: "me",
-    q: jobSearchQuery,
-    maxResults,
-  });
-
-  if (!data.messages || data.messages.length === 0) {
-    return [];
-  }
-
-  const emails: EmailData[] = [];
-
-  for (const msg of data.messages) {
-    const { data: full } = await gmail.users.messages.get({
+  do {
+    const { data } = await gmail.users.messages.list({
       userId: "me",
-      id: msg.id!,
-      format: "metadata",
-      metadataHeaders: ["Subject", "From", "Date"],
+      q,
+      maxResults: Math.min(500, cap - ids.length),
+      pageToken,
     });
+    for (const m of data.messages ?? []) {
+      if (m.id) ids.push(m.id);
+    }
+    pageToken = data.nextPageToken ?? undefined;
+  } while (pageToken && ids.length < cap);
 
-    const headers = full.payload?.headers || [];
-    const subject =
-      headers.find((h) => h.name === "Subject")?.value || "(No Subject)";
-    const from = headers.find((h) => h.name === "From")?.value || "";
-    const date = headers.find((h) => h.name === "Date")?.value || "";
+  return { ids, truncated: Boolean(pageToken) };
+}
 
-    emails.push({
-      id: full.id!,
-      threadId: full.threadId!,
-      subject,
-      from,
-      snippet: full.snippet || "",
-      date,
-    });
-  }
-
-  return emails;
+/** Decodes the HTML entities Gmail leaves in snippets (&#39; &amp; …). */
+export function decodeEntities(text: string): string {
+  return text
+    .replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(Number(n)))
+    .replace(/&#x([0-9a-f]+);/gi, (_, n) => String.fromCodePoint(parseInt(n, 16)))
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&");
 }
 
 /**
- * Applies a Gmail label to a message and marks it as read.
+ * Fetches Subject/From/snippet/internalDate for the given IDs,
+ * `concurrency` requests at a time. Failed IDs are returned separately.
  */
-export async function applyLabelAndMarkRead(
+export async function getMessagesMetadata(
   gmail: gmail_v1.Gmail,
-  messageId: string,
-  labelId: string
-): Promise<void> {
-  await gmail.users.messages.modify({
-    userId: "me",
-    id: messageId,
-    requestBody: {
-      addLabelIds: [labelId],
-      removeLabelIds: ["UNREAD"],
-    },
+  ids: string[],
+  concurrency = 10
+): Promise<{ emails: EmailData[]; failed: string[] }> {
+  const failed: string[] = [];
+
+  const results = await mapWithConcurrency(ids, concurrency, async (id) => {
+    try {
+      const { data: full } = await gmail.users.messages.get({
+        userId: "me",
+        id,
+        format: "metadata",
+        metadataHeaders: ["Subject", "From", "Date"],
+      });
+
+      const headers = full.payload?.headers || [];
+      const header = (name: string) =>
+        headers.find((h) => h.name?.toLowerCase() === name.toLowerCase())?.value || "";
+
+      let date = new Date(Number(full.internalDate));
+      if (isNaN(date.getTime())) date = new Date(header("Date"));
+      if (isNaN(date.getTime())) date = new Date();
+
+      const email: EmailData = {
+        id: full.id || id,
+        threadId: full.threadId || id,
+        subject: header("Subject") || "(No Subject)",
+        from: header("From"),
+        snippet: decodeEntities(full.snippet || ""),
+        date,
+      };
+      return email;
+    } catch (err) {
+      console.error(`Failed to fetch message ${id}:`, err instanceof Error ? err.message : err);
+      failed.push(id);
+      return null;
+    }
   });
+
+  return { emails: results.filter((e): e is EmailData => e !== null), failed };
+}
+
+/**
+ * Applies a Gmail label (and optionally marks as read) to many messages using
+ * batchModify — one API call per 1000 messages instead of one per message.
+ */
+export async function applyLabel(
+  gmail: gmail_v1.Gmail,
+  labelId: string,
+  messageIds: string[],
+  markRead = true
+): Promise<void> {
+  for (const ids of chunk(messageIds, 1000)) {
+    await gmail.users.messages.batchModify({
+      userId: "me",
+      requestBody: {
+        ids,
+        addLabelIds: [labelId],
+        removeLabelIds: markRead ? ["UNREAD"] : [],
+      },
+    });
+  }
 }

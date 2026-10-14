@@ -15,6 +15,7 @@ model User {
   email         String?   @unique
   emailVerified DateTime?
   image         String?
+  lastSyncAt    DateTime?
 
   accounts        Account[]
   sessions        Session[]
@@ -64,6 +65,7 @@ model Application {
   id           String    @id @default(cuid())
   userId       String
   company      String
+  companyKey   String    @default("") // normalized company used for matching ("" = unknown)
   role         String
   status       String    @default("applied") // applied | reply_received | interview | rejected | offer
   appliedDate  DateTime  @default(now())
@@ -81,7 +83,7 @@ model Application {
 
   @@index([userId])
   @@index([threadId])
-  @@index([company])
+  @@index([userId, companyKey])
 }
 
 /// Tracks which emails have already been processed to avoid re-analysis

@@ -1,5 +1,13 @@
 import OpenAI from "openai";
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import {
+  GoogleGenerativeAI,
+  SchemaType,
+  type GenerativeModel,
+  type ResponseSchema,
+} from "@google/generative-ai";
+import { cleanCompanyName } from "./company";
+import { isExcludedSender } from "./senders";
+import { sleep } from "./concurrency";
 
 // ─── Classification Types ────────────────────────
 
@@ -41,6 +49,7 @@ STRICTLY NOT JOB-RELATED — always set isJobRelated: false for:
 - Internshala/Coursera/Udemy/edX — course enrollments, certificates, bootcamps, webinars
 - Unstop, HackerEarth, Devfolio — competition/hackathon registrations
 - LinkedIn job alerts, "jobs you might like", connection requests, profile views
+- LinkedIn "Your application was viewed by..." notifications (not a reply from the company)
 - Naukri/Indeed/Glassdoor — profile update reminders, job board newsletters
 - Generic platform assessments (HireVue, Talview, Codility) NOT tied to a specific company application
 - Cold recruiter outreach ("Are you open to new opportunities?") where user hasn't applied
@@ -49,10 +58,11 @@ STRICTLY NOT JOB-RELATED — always set isJobRelated: false for:
 - Bank statements, invoices, billing, payment confirmations
 - ANY email where you CANNOT confidently identify BOTH a specific hiring company AND a specific job role
 
-JOB PLATFORM SPECIAL HANDLING (Wellfound, AngelList, YC):
+JOB PLATFORM SPECIAL HANDLING (Wellfound, AngelList, YC, LinkedIn):
 - These are platforms that submit applications on behalf of the user.
 - When a Wellfound/AngelList email says "Your application to [COMPANY] has been submitted", it IS job-related.
-- For "company": extract the ACTUAL HIRING COMPANY (e.g., "Sagepilot AI"), NOT the platform name ("Wellfound").
+- When a LinkedIn email (jobs-noreply@linkedin.com) says "Your application was sent to [COMPANY]", it IS job-related (category "applied").
+- For "company": extract the ACTUAL HIRING COMPANY (e.g., "Sagepilot AI"), NOT the platform name ("Wellfound", "LinkedIn").
 - For "role": extract the actual job title from the email body/snippet.
 
 IMPORTANT RULES:
@@ -77,52 +87,171 @@ Respond ONLY with valid JSON (no markdown, no explanation):
 
 // ─── Classifier ──────────────────────────────────
 
+const CONFIDENCE_THRESHOLD = 0.75;
+
+const VALID_STATUSES = [
+  "applied",
+  "reply_received",
+  "interview",
+  "rejected",
+  "offer",
+] as const;
+
+const notJobRelated = (confidence = 0): ClassificationResult => ({
+  isJobRelated: false,
+  category: null,
+  company: null,
+  role: null,
+  status: null,
+  confidence,
+});
+
 function buildUserPrompt(
   subject: string,
   from: string,
-  snippet: string
+  snippet: string,
+  date?: Date
 ): string {
+  const dateStr = date && !isNaN(date.getTime()) ? date.toISOString().slice(0, 10) : "unknown";
   return `Classify this email:
 Subject: ${subject}
 From: ${from}
+Date: ${dateStr}
 Snippet: ${snippet}`;
 }
 
+/** Trims quotes/whitespace, rejects placeholders, caps very long titles. */
+export function cleanRole(role: unknown): string | null {
+  if (typeof role !== "string") return null;
+  let r = role
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/^["'“”]+|["'“”]+$/g, "")
+    .trim();
+  if (!r || /^(unknown( role)?|n\/?a|null|none)$/i.test(r)) return null;
+  if (r.length > 80) {
+    r = r.slice(0, 80);
+    const lastSpace = r.lastIndexOf(" ");
+    if (lastSpace > 40) r = r.slice(0, lastSpace);
+    r = r.trim();
+  }
+  return r;
+}
+
 /**
- * Classifies an email using OpenAI (preferred) or Google Gemini as fallback.
+ * Validates raw model output into a well-formed ClassificationResult.
+ * Anything malformed or below the confidence threshold becomes "not job-related".
+ */
+export function sanitizeResult(raw: unknown): ClassificationResult {
+  const r = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+
+  const confidence =
+    typeof r.confidence === "number" && Number.isFinite(r.confidence)
+      ? Math.min(1, Math.max(0, r.confidence))
+      : 0;
+
+  const category =
+    r.category === "applied" || r.category === "reply" ? r.category : null;
+
+  if (r.isJobRelated !== true || category === null || confidence < CONFIDENCE_THRESHOLD) {
+    return notJobRelated(confidence);
+  }
+
+  let status = (VALID_STATUSES as readonly string[]).includes(r.status as string)
+    ? (r.status as ClassificationResult["status"])
+    : null;
+
+  // Keep category and status consistent
+  if (category === "applied") status = "applied";
+  else if (!status || status === "applied") status = "reply_received";
+
+  return {
+    isJobRelated: true,
+    category,
+    company: cleanCompanyName(r.company as string | null),
+    role: cleanRole(r.role),
+    status,
+    confidence,
+  };
+}
+
+/**
+ * Classifies an email using OpenAI (preferred) or Google Gemini.
+ * Throws if the AI call fails, so the caller can leave the email unprocessed
+ * and retry on the next sync. The rule-based classifier is used only when no
+ * AI key is configured.
  */
 export async function classifyEmail(
   subject: string,
   from: string,
-  snippet: string
+  snippet: string,
+  date?: Date
 ): Promise<ClassificationResult> {
-  const userPrompt = buildUserPrompt(subject, from, snippet);
+  // Cheap pre-filter — never spend an AI call on known-noise senders
+  if (isExcludedSender(from)) return notJobRelated(0.95);
 
+  const userPrompt = buildUserPrompt(subject, from, snippet, date);
+
+  if (process.env.OPENAI_API_KEY) {
+    return classifyWithOpenAI(userPrompt); // SDK retries 429/5xx internally
+  }
+  if (process.env.GEMINI_API_KEY) {
+    return withRetry(() => classifyWithGemini(userPrompt));
+  }
+  return ruleBasedClassifier(subject, from, snippet);
+}
+
+/** Retries once (after a short backoff) on rate-limit, server, or parse errors. */
+async function withRetry<T>(fn: () => Promise<T>, retries = 1): Promise<T> {
   try {
-    if (process.env.OPENAI_API_KEY) {
-      return await classifyWithOpenAI(userPrompt);
-    } else if (process.env.GEMINI_API_KEY) {
-      return await classifyWithGemini(userPrompt);
-    } else {
-      return ruleBasedClassifier(subject, from, snippet);
-    }
-  } catch (error) {
-    console.error("AI classification failed, using rule-based fallback:", error);
-    return ruleBasedClassifier(subject, from, snippet);
+    return await fn();
+  } catch (err) {
+    const status = (err as { status?: number })?.status;
+    const retryable = status === undefined || status === 429 || status >= 500;
+    if (retries <= 0 || !retryable) throw err;
+    await sleep(1500);
+    return withRetry(fn, retries - 1);
   }
 }
 
 // ─── OpenAI Implementation ──────────────────────
 
+let openaiClient: OpenAI | null = null;
+const getOpenAI = () =>
+  (openaiClient ??= new OpenAI({
+    apiKey: process.env.OPENAI_API_KEY,
+    maxRetries: 3,
+    timeout: 30_000,
+  }));
+
+const OPENAI_RESPONSE_FORMAT = {
+  type: "json_schema" as const,
+  json_schema: {
+    name: "email_classification",
+    strict: true,
+    schema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["isJobRelated", "category", "company", "role", "status", "confidence"],
+      properties: {
+        isJobRelated: { type: "boolean" },
+        category: { anyOf: [{ type: "string", enum: ["applied", "reply"] }, { type: "null" }] },
+        company: { type: ["string", "null"] },
+        role: { type: ["string", "null"] },
+        status: { anyOf: [{ type: "string", enum: [...VALID_STATUSES] }, { type: "null" }] },
+        confidence: { type: "number" },
+      },
+    },
+  },
+};
+
 async function classifyWithOpenAI(
   userPrompt: string
 ): Promise<ClassificationResult> {
-  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-
-  const response = await openai.chat.completions.create({
+  const response = await getOpenAI().chat.completions.create({
     model: "gpt-4o-mini",
     temperature: 0.05,
-    response_format: { type: "json_object" },
+    response_format: OPENAI_RESPONSE_FORMAT,
     messages: [
       { role: "system", content: SYSTEM_PROMPT },
       { role: "user", content: userPrompt },
@@ -132,41 +261,44 @@ async function classifyWithOpenAI(
   const content = response.choices[0]?.message?.content;
   if (!content) throw new Error("Empty response from OpenAI");
 
-  const result = JSON.parse(content) as ClassificationResult;
-  if (result.confidence < 0.75) {
-    result.isJobRelated = false;
-    result.category = null;
-  }
-  return result;
+  return sanitizeResult(JSON.parse(content));
 }
 
 // ─── Gemini Implementation ──────────────────────
 
-async function classifyWithGemini(
-  userPrompt: string
-): Promise<ClassificationResult> {
-  const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
-  const model = genAI.getGenerativeModel({
+const GEMINI_SCHEMA: ResponseSchema = {
+  type: SchemaType.OBJECT,
+  properties: {
+    isJobRelated: { type: SchemaType.BOOLEAN },
+    category: { type: SchemaType.STRING, format: "enum", enum: ["applied", "reply"], nullable: true },
+    company: { type: SchemaType.STRING, nullable: true },
+    role: { type: SchemaType.STRING, nullable: true },
+    status: { type: SchemaType.STRING, format: "enum", enum: [...VALID_STATUSES], nullable: true },
+    confidence: { type: SchemaType.NUMBER },
+  },
+  required: ["isJobRelated", "category", "company", "role", "status", "confidence"],
+};
+
+let geminiModel: GenerativeModel | null = null;
+const getGeminiModel = () =>
+  (geminiModel ??= new GoogleGenerativeAI(process.env.GEMINI_API_KEY!).getGenerativeModel({
     model: "gemini-2.5-flash",
+    systemInstruction: SYSTEM_PROMPT,
     generationConfig: {
       temperature: 0.05,
       responseMimeType: "application/json",
+      responseSchema: GEMINI_SCHEMA,
     },
-  });
+  }));
 
-  const result = await model.generateContent(
-    `${SYSTEM_PROMPT}\n\n${userPrompt}`
-  );
+async function classifyWithGemini(
+  userPrompt: string
+): Promise<ClassificationResult> {
+  const result = await getGeminiModel().generateContent(userPrompt);
   const text = result.response.text();
 
   const cleaned = text.replace(/```json\n?|\n?```/g, "").trim();
-  const parsed = JSON.parse(cleaned) as ClassificationResult;
-
-  if (parsed.confidence < 0.75) {
-    parsed.isJobRelated = false;
-    parsed.category = null;
-  }
-  return parsed;
+  return sanitizeResult(JSON.parse(cleaned));
 }
 
 // ─── Rule-Based Fallback ─────────────────────────
@@ -188,7 +320,7 @@ function extractCompanyFromDomain(from: string): string | null {
     "myworkday", "workday", "greenhouse", "lever", "icims",
     "rippling", "bamboohr", "recruitee", "ashby",
     "talent", "careers", "recruiting", "hr", "jobs",
-    "wellfound", "angellist",
+    "wellfound", "angellist", "linkedin",
   ];
   if (noiseDomains.includes(rawName.toLowerCase())) return null;
 
@@ -220,20 +352,8 @@ function ruleBasedClassifier(
   const fromLower = from.toLowerCase();
   const snippetLower = snippet.toLowerCase();
 
-  // ── Hard exclusions: domain-level ──
-  const excludedDomains = [
-    "uber.com", "ubereats.com", "ola.com", "olacabs.com",
-    "zomato.com", "swiggy.com", "dunzo.com", "blinkit.com",
-    "amazon.in", "amazon.com", "flipkart.com", "myntra.com", "meesho.com",
-    "paytm.com", "phonepe.com", "gpay.com", "razorpay.com",
-    "internshala.com", "coursera.org", "udemy.com", "edx.org",
-    "unacademy.com", "upgrad.com", "simplilearn.com", "byjus.com",
-    "linkedin.com", "naukri.com", "indeed.com", "glassdoor.com",
-    "shine.com", "monster.com",
-    "unstop.com", "hackerearth.com", "devfolio.co", "hackerrank.com",
-  ];
-
-  if (excludedDomains.some((domain) => fromLower.includes(domain))) {
+  // ── Hard exclusions: sender (shared list with the Gmail query) ──
+  if (isExcludedSender(from)) {
     return { isJobRelated: false, category: null, company: null, role: null, status: null, confidence: 0.95 };
   }
 
@@ -278,6 +398,8 @@ function ruleBasedClassifier(
     "application has been received",
     // Wellfound/platform
     "your application has been submitted",
+    // LinkedIn Easy Apply
+    "your application was sent to",
   ];
 
   // ── Reply / status update patterns ──
@@ -350,6 +472,12 @@ function ruleBasedClassifier(
   const isFromPlatform = fromLower.includes("wellfound") || fromLower.includes("angellist") || fromLower.includes("hi.wellfound");
   if (isFromPlatform) {
     company = extractCompanyFromPlatformSnippet(snippet) || company;
+  }
+
+  // 4. LinkedIn Easy Apply: "Your application was sent to Acme"
+  const linkedInMatch = subject.match(/your application was sent to\s+(.+?)\s*$/i);
+  if (linkedInMatch) {
+    company = linkedInMatch[1];
   }
 
   // ── Role extraction — subject first, then snippet fallback (Fix E) ──
@@ -437,8 +565,8 @@ function ruleBasedClassifier(
   return {
     isJobRelated: true,
     category: isReply ? "reply" : "applied",
-    company,
-    role,
+    company: cleanCompanyName(company),
+    role: cleanRole(role),
     status,
     confidence: 0.65,
   };
