@@ -2,45 +2,31 @@
 
 import { useState, useEffect } from "react";
 import { CalendarDays } from "lucide-react";
+import {
+  autoFormatDateInput,
+  isoToDDMMYYYY,
+  parseDDMMYYYY,
+  toLocalISODate,
+} from "@/lib/dates";
 
 interface DateRangePickerProps {
-  fromDate: string; // ISO date string: YYYY-MM-DD
-  toDate: string;   // ISO date string: YYYY-MM-DD
+  fromDate: string; // local ISO date string: YYYY-MM-DD
+  toDate: string;   // local ISO date string: YYYY-MM-DD
   onFromChange: (date: string) => void;
   onToChange: (date: string) => void;
-}
-
-/**
- * Converts DD/MM/YYYY → YYYY-MM-DD (ISO) for internal storage.
- * Returns empty string if input is invalid.
- */
-function ddmmyyyyToISO(input: string): string {
-  const parts = input.split("/");
-  if (parts.length !== 3) return "";
-  const [dd, mm, yyyy] = parts;
-  if (!dd || !mm || !yyyy || yyyy.length !== 4) return "";
-  const d = new Date(`${yyyy}-${mm}-${dd}`);
-  if (isNaN(d.getTime())) return "";
-  return `${yyyy}-${mm.padStart(2, "0")}-${dd.padStart(2, "0")}`;
-}
-
-/**
- * Converts YYYY-MM-DD → DD/MM/YYYY for display in the text input.
- */
-function isoToDDMMYYYY(iso: string): string {
-  if (!iso) return "";
-  const [yyyy, mm, dd] = iso.split("-");
-  if (!yyyy || !mm || !dd) return "";
-  return `${dd}/${mm}/${yyyy}`;
+  /** Range-level error (e.g. From after To) shown under the inputs */
+  error?: string | null;
 }
 
 function DateInput({
+  id,
   label,
   value,
   onChange,
   max,
   min,
 }: {
+  id: string;
   label: string;
   value: string;
   onChange: (iso: string) => void;
@@ -48,58 +34,82 @@ function DateInput({
   min?: string;
 }) {
   const [textValue, setTextValue] = useState(isoToDDMMYYYY(value));
-  const [error, setError] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   // Keep text input in sync when parent changes value (e.g. reset)
   useEffect(() => {
     setTextValue(isoToDDMMYYYY(value));
-    setError(false);
+    setError(null);
   }, [value]);
 
-  const handleTextChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const raw = e.target.value;
-    setTextValue(raw);
+  /** Returns an error message, or null if `iso` is acceptable. */
+  const checkBounds = (iso: string): string | null => {
+    if (max && iso > max) return `Must be on or before ${isoToDDMMYYYY(max)}`;
+    if (min && iso < min) return `Must be on or after ${isoToDDMMYYYY(min)}`;
+    return null;
+  };
 
-    // Auto-insert slashes as user types
-    if (/^\d{2}$/.test(raw) || /^\d{2}\/\d{2}$/.test(raw)) {
-      setTextValue(raw + "/");
+  const handleTextChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    // Slashes are auto-inserted only while typing forward, so backspace works
+    const formatted = autoFormatDateInput(textValue, e.target.value);
+    setTextValue(formatted);
+
+    if (formatted.length < 10) {
+      setError(null);
       return;
     }
 
-    // Try to parse as DD/MM/YYYY
-    if (raw.length === 10) {
-      const iso = ddmmyyyyToISO(raw);
-      if (iso) {
-        setError(false);
-        onChange(iso);
-      } else {
-        setError(true);
-      }
-    } else {
-      setError(false);
+    const iso = parseDDMMYYYY(formatted);
+    if (!iso) {
+      setError("Invalid date — use DD/MM/YYYY");
+      return;
+    }
+    const boundsError = checkBounds(iso);
+    if (boundsError) {
+      setError(boundsError);
+      return;
+    }
+    setError(null);
+    onChange(iso);
+  };
+
+  // Leaving the field with an incomplete/invalid value restores the last valid date
+  const handleBlur = () => {
+    const iso = parseDDMMYYYY(textValue);
+    if (!iso || checkBounds(iso)) {
+      setTextValue(isoToDDMMYYYY(value));
+      setError(null);
     }
   };
 
   const handleCalendarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const iso = e.target.value; // already YYYY-MM-DD
+    if (!iso) return;
     onChange(iso);
     setTextValue(isoToDDMMYYYY(iso));
-    setError(false);
+    setError(null);
   };
 
   return (
     <div className="flex flex-col gap-1">
-      <label className="text-xs text-muted-foreground font-medium uppercase tracking-wide">
+      <label
+        htmlFor={id}
+        className="text-xs text-muted-foreground font-medium uppercase tracking-wide"
+      >
         {label}
       </label>
       <div className="relative flex items-center">
         {/* Text input (DD/MM/YYYY) */}
         <input
+          id={id}
           type="text"
+          inputMode="numeric"
           value={textValue}
           onChange={handleTextChange}
+          onBlur={handleBlur}
           placeholder="DD/MM/YYYY"
           maxLength={10}
+          aria-invalid={!!error}
           className={`h-9 w-[130px] rounded-l-md border bg-background px-3 text-sm
             text-foreground placeholder:text-muted-foreground/50 outline-none
             focus:ring-1 focus:ring-primary transition-colors
@@ -115,18 +125,18 @@ function DateInput({
         >
           <CalendarDays className="h-4 w-4 text-muted-foreground group-hover:text-primary transition-colors" />
           <input
+            id={`${id}-calendar`}
             type="date"
             value={value}
             min={min}
             max={max}
             onChange={handleCalendarChange}
             className="absolute inset-0 opacity-0 cursor-pointer w-full"
+            aria-label={`${label} (calendar)`}
           />
         </label>
       </div>
-      {error && (
-        <p className="text-xs text-red-400">Invalid date — use DD/MM/YYYY</p>
-      )}
+      {error && <p className="text-xs text-red-400">{error}</p>}
     </div>
   );
 }
@@ -136,25 +146,31 @@ export function DateRangePicker({
   toDate,
   onFromChange,
   onToChange,
+  error,
 }: DateRangePickerProps) {
-  const today = new Date().toISOString().split("T")[0];
+  const today = toLocalISODate();
 
   return (
-    <div className="flex items-end gap-2">
-      <DateInput
-        label="From"
-        value={fromDate}
-        onChange={onFromChange}
-        max={toDate || today}
-      />
-      <div className="pb-1 text-muted-foreground/50 text-sm font-medium">→</div>
-      <DateInput
-        label="To"
-        value={toDate}
-        onChange={onToChange}
-        min={fromDate}
-        max={today}
-      />
+    <div className="flex flex-col gap-1">
+      <div className="flex items-end gap-2">
+        <DateInput
+          id="date-from"
+          label="From"
+          value={fromDate}
+          onChange={onFromChange}
+          max={toDate || today}
+        />
+        <div className="pb-1 text-muted-foreground/50 text-sm font-medium">→</div>
+        <DateInput
+          id="date-to"
+          label="To"
+          value={toDate}
+          onChange={onToChange}
+          min={fromDate}
+          max={today}
+        />
+      </div>
+      {error && <p className="text-xs text-red-400">{error}</p>}
     </div>
   );
 }

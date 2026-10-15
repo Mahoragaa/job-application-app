@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
+export const dynamic = "force-dynamic";
+
 export async function GET() {
   try {
     const session = await auth();
@@ -9,12 +11,21 @@ export async function GET() {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const applications = await prisma.application.findMany({
-      where: { userId: session.user.id },
-      orderBy: { appliedDate: "desc" },
-    });
+    const [applications, user] = await Promise.all([
+      prisma.application.findMany({
+        where: { userId: session.user.id },
+        orderBy: { appliedDate: "desc" },
+      }),
+      prisma.user.findUnique({
+        where: { id: session.user.id },
+        select: { lastSyncAt: true },
+      }),
+    ]);
 
-    return NextResponse.json(applications);
+    return NextResponse.json({
+      applications,
+      lastSyncAt: user?.lastSyncAt ?? null,
+    });
   } catch (error) {
     console.error("Failed to fetch applications:", error);
     return NextResponse.json(
@@ -33,8 +44,9 @@ export async function DELETE() {
 
     const userId = session.user.id;
 
-    // Delete ProcessedEmail first (no FK constraint issue), then Applications
-    const [deletedEmails, deletedApps] = await Promise.all([
+    // Clear both tables atomically so a partial failure can't leave
+    // applications without their processed-email markers (or vice versa)
+    const [deletedEmails, deletedApps] = await prisma.$transaction([
       prisma.processedEmail.deleteMany({ where: { userId } }),
       prisma.application.deleteMany({ where: { userId } }),
     ]);

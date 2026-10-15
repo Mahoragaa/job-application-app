@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useSession } from "next-auth/react";
 import { redirect } from "next/navigation";
 import { DashboardHeader } from "@/components/dashboard/header";
@@ -11,6 +11,7 @@ import { DateRangePicker } from "@/components/dashboard/date-range-picker";
 import { Button } from "@/components/ui/button";
 import { Trash2 } from "lucide-react";
 import { toast } from "sonner";
+import { localISODateDaysAgo, toLocalISODate, validateDateRange } from "@/lib/dates";
 
 interface Application {
   id: string;
@@ -27,35 +28,26 @@ interface Application {
   updatedAt: string;
 }
 
-/** Returns YYYY-MM-DD for a date N days in the past */
-function isoDateDaysAgo(days: number): string {
-  const d = new Date();
-  d.setDate(d.getDate() - days);
-  return d.toISOString().split("T")[0];
-}
-
-/** Returns today as YYYY-MM-DD */
-function isoToday(): string {
-  return new Date().toISOString().split("T")[0];
-}
-
 export default function DashboardPage() {
-  const { data: session, status: sessionStatus } = useSession();
+  const { status: sessionStatus } = useSession();
   const [applications, setApplications] = useState<Application[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null);
   const [isClearing, setIsClearing] = useState(false);
 
-  // Date range state — default: last 6 months → today
-  const [fromDate, setFromDate] = useState(isoDateDaysAgo(180));
-  const [toDate, setToDate] = useState(isoToday());
+  // Date range state (local calendar dates) — default: last 6 months → today
+  const [fromDate, setFromDate] = useState(() => localISODateDaysAgo(180));
+  const [toDate, setToDate] = useState(() => toLocalISODate());
+  const rangeError = useMemo(() => validateDateRange(fromDate, toDate), [fromDate, toDate]);
 
   const fetchApplications = useCallback(async () => {
     try {
-      const response = await fetch("/api/applications");
+      const response = await fetch("/api/applications", { cache: "no-store" });
       if (response.ok) {
-        const data = await response.json();
-        setApplications(data);
+        const data: { applications: Application[]; lastSyncAt: string | null } =
+          await response.json();
+        setApplications(data.applications);
+        setLastSyncTime(data.lastSyncAt ? new Date(data.lastSyncAt) : null);
       }
     } catch (error) {
       console.error("Failed to fetch applications:", error);
@@ -88,8 +80,7 @@ export default function DashboardPage() {
   }
 
   const handleSyncComplete = () => {
-    setLastSyncTime(new Date());
-    fetchApplications();
+    fetchApplications(); // also refreshes lastSyncAt from the server
   };
 
   const handleClearAll = async () => {
@@ -149,6 +140,7 @@ export default function DashboardPage() {
               toDate={toDate}
               onFromChange={setFromDate}
               onToChange={setToDate}
+              error={rangeError}
             />
 
             {/* Action buttons */}
@@ -157,6 +149,9 @@ export default function DashboardPage() {
                 onSyncComplete={handleSyncComplete}
                 fromDate={fromDate}
                 toDate={toDate}
+                lastSyncAt={lastSyncTime}
+                autoSyncEnabled={!isLoading}
+                disabled={!!rangeError}
               />
 
               {applications.length > 0 && (
