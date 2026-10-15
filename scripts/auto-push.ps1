@@ -24,10 +24,21 @@ function Log([string]$msg) {
   Write-Host $msg
 }
 
-function Git {
-  # Runs git, returns output lines, throws on non-zero exit
-  $out = & git @args 2>&1
-  if ($LASTEXITCODE -ne 0) { throw "git $($args -join ' ') failed: $($out -join ' ')" }
+# NOTE: PowerShell command names are case-insensitive, so the helper must NOT be
+# named "Git" (it would shadow git.exe and recurse). Always call git.exe explicitly.
+
+# Runs git, returns output lines (stderr included as text). Never throws; exit code in $script:GitExit.
+function Invoke-Git {
+  $ErrorActionPreference = "Continue" # git writes progress to stderr; don't treat it as fatal
+  $out = & git.exe @args 2>&1 | ForEach-Object { "$_" }
+  $script:GitExit = $LASTEXITCODE
+  return $out
+}
+
+# Same as Invoke-Git but throws on a non-zero exit code.
+function Invoke-GitChecked {
+  $out = Invoke-Git @args
+  if ($script:GitExit -ne 0) { throw "git $($args -join ' ') failed: $($out -join ' ')" }
   return $out
 }
 
@@ -41,12 +52,12 @@ try {
     if (Test-Path (Join-Path $gitDir $marker)) { Log "Skipped: $marker in progress"; exit 0 }
   }
 
-  $branch = (Git rev-parse --abbrev-ref HEAD | Select-Object -First 1).ToString().Trim()
+  $branch = (Invoke-GitChecked rev-parse --abbrev-ref HEAD | Select-Object -First 1).ToString().Trim()
   if ($branch -eq "HEAD") { Log "Skipped: detached HEAD"; exit 0 }
 
   # ── Stage & secret-scan ─────────────────────────
-  Git add -A | Out-Null
-  $staged = @(Git diff --cached --name-only)
+  Invoke-GitChecked add -A | Out-Null
+  $staged = @(Invoke-GitChecked diff --cached --name-only | Where-Object { $_ -and $_ -notmatch '^warning:' })
 
   if ($staged.Count -gt 0) {
     $blockedFiles = $staged | Where-Object {
@@ -64,12 +75,12 @@ try {
       '|-----BEGIN [A-Z ]*PRIVATE KEY-----)'
     $secretHits = @()
     if ($scanFiles) {
-      $diff = & git diff --cached -U0 -- $scanFiles 2>$null
+      $diff = Invoke-Git diff --cached -U0 -- $scanFiles
       $secretHits = @($diff | Select-String -Pattern $secretPattern)
     }
 
     if ($blockedFiles -or $secretHits.Count -gt 0) {
-      Git reset -q | Out-Null
+      Invoke-GitChecked reset -q | Out-Null
       $why = @()
       if ($blockedFiles) { $why += "blocked files: $($blockedFiles -join ', ')" }
       if ($secretHits.Count -gt 0) { $why += "$($secretHits.Count) line(s) that look like secrets" }
@@ -79,31 +90,30 @@ try {
 
     $stamp = Get-Date -Format "yyyy-MM-dd HH:mm"
     $summary = if ($staged.Count -le 3) { $staged -join ", " } else { "$($staged.Count) files" }
-    Git commit -q -m "chore(auto): sync $stamp - $summary" | Out-Null
+    Invoke-GitChecked commit -q -m "chore(auto): sync $stamp - $summary" | Out-Null
     Log "Committed: $summary"
   }
 
   # ── Sync with remote ────────────────────────────
-  Git fetch -q origin | Out-Null
-  $hasUpstream = $true
-  & git rev-parse --verify -q "origin/$branch" *> $null
-  if ($LASTEXITCODE -ne 0) { $hasUpstream = $false }
+  Invoke-GitChecked fetch -q origin | Out-Null
+  Invoke-Git rev-parse --verify -q "origin/$branch" | Out-Null
+  $hasUpstream = ($script:GitExit -eq 0)
 
   if ($hasUpstream) {
-    $behind = [int]((Git rev-list --count "HEAD..origin/$branch") | Select-Object -First 1).ToString().Trim()
+    $behind = [int]((Invoke-GitChecked rev-list --count "HEAD..origin/$branch") | Select-Object -First 1).ToString().Trim()
     if ($behind -gt 0) {
-      & git pull -q --rebase origin $branch 2>&1 | Out-Null
-      if ($LASTEXITCODE -ne 0) {
-        & git rebase --abort 2>&1 | Out-Null
+      Invoke-Git pull -q --rebase origin $branch | Out-Null
+      if ($script:GitExit -ne 0) {
+        Invoke-Git rebase --abort | Out-Null
         Log "ABORTED: rebase onto origin/$branch had conflicts. Resolve manually; local commits kept."
         exit 1
       }
     }
-    $ahead = [int]((Git rev-list --count "origin/$branch..HEAD") | Select-Object -First 1).ToString().Trim()
+    $ahead = [int]((Invoke-GitChecked rev-list --count "origin/$branch..HEAD") | Select-Object -First 1).ToString().Trim()
     if ($ahead -eq 0) { if ($staged.Count -eq 0) { Log "Up to date" }; exit 0 }
   }
 
-  Git push -q -u origin $branch | Out-Null
+  Invoke-GitChecked push -q -u origin $branch | Out-Null
   Log "Pushed $branch to origin"
   exit 0
 }
