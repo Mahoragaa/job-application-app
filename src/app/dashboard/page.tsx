@@ -180,6 +180,7 @@ export default function DashboardPage() {
         <ApplicationTable
           applications={applications}
           isLoading={isLoading}
+          onRefresh={fetchApplications}
         />
       </main>
     </div>

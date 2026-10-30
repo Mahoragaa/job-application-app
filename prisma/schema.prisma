@@ -21,6 +21,8 @@ model User {
   sessions        Session[]
   applications    Application[]
   processedEmails ProcessedEmail[]
+  resumes         Resume[]
+  tailoredResumes TailoredResume[]
 }
 
 model Account {
@@ -73,13 +75,16 @@ model Application {
   threadId     String?
   snippet      String?
   senderEmail  String?
-  hasReply     Boolean   @default(false)
-  replyDate    DateTime?
-  replySnippet String?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  hasReply       Boolean   @default(false)
+  replyDate      DateTime?
+  replySnippet   String?
+  notes          String?
+  jobDescription String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tailoredResumes TailoredResume[]
 
   @@index([userId])
   @@index([threadId])
@@ -96,4 +101,55 @@ model ProcessedEmail {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, emailId])
+}
+
+// ─── Resume Tailoring & Preview Studio ───────────
+
+/// Base / master resume uploaded or pasted by the user
+model Resume {
+  id             String   @id @default(cuid())
+  userId         String
+  title          String   @default("My Master Resume")
+  fileName       String?
+  rawText        String
+  structuredData String   // JSON: StructuredResume
+  isDefault      Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tailoredResumes TailoredResume[]
+
+  @@index([userId])
+}
+
+/// A job-specific tailored resume with diff metadata, ATS match scores, and AI revision history
+model TailoredResume {
+  id               String   @id @default(cuid())
+  userId           String
+  baseResumeId     String
+  applicationId    String?
+  company          String
+  role             String
+  jobDescription   String
+  tailorMode       String   @default("balanced") // conservative | balanced | aggressive
+  originalContent  String   // JSON: StructuredResume snapshot
+  tailoredContent  String   // JSON: StructuredResume (current active tailored version)
+  changeSummary    String   // JSON: ResumeChangeItem[]
+  keywordsMatched  String   @default("[]") // JSON: string[]
+  keywordsMissing  String   @default("[]") // JSON: string[]
+  matchScoreBefore Int      @default(0)
+  matchScoreAfter  Int      @default(0)
+  status           String   @default("draft") // draft | accepted_new | kept_original
+  revisionHistory  String   @default("[]") // JSON: RevisionHistoryEntry[]
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  baseResume  Resume       @relation(fields: [baseResumeId], references: [id], onDelete: Cascade)
+  application Application? @relation(fields: [applicationId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([applicationId])
+  @@index([baseResumeId])
 }
