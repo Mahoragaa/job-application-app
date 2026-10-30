@@ -9,6 +9,11 @@ An automated job application tracking system that connects to your Gmail, scans 
 - **Accurate Tracking**: Emails are processed oldest → newest, matched by Gmail thread and normalized company name, and saved transactionally — failed emails are retried on the next sync.
 - **Fast Syncs**: Already-processed emails are skipped before any Gmail/AI calls; metadata and AI calls run in parallel; labels are applied in bulk.
 - **Auto-Sync**: While the dashboard is open, it incrementally syncs every 6 hours.
+- **Interactive Dashboard Controls**: Search by company/role/notes, filter by status pills (`Applied`, `Reply Received`, `Interview`, `Offer`, `Rejected`), sort columns, manually add/edit/delete applications, and export to CSV.
+- **AI Resume Tailor & Diff Preview Studio (`/resume`)**:
+  - Upload your base resume (`.pdf`, `.docx`, `.txt`, `.md`) or paste resume text.
+  - Tailor your resume to any Job Description (standalone or linked to a tracked application) with *Conservative*, *Balanced*, or *Deep Alignment* modes.
+  - **Interactive Preview & Decision Page (`/resume/preview/[id]`)**: Inspect word-level red/green diffs, see ATS match score improvements and matched/missing keywords, toggle individual edits on/off, and choose to **Go With This Tailored Resume**, **Stick to Old Resume**, or **Make Specific AI Changes** via an interactive prompt with full revision history and PDF/Markdown export.
 - **Privacy First**: Uses a local SQLite database (`dev.db`). Your data stays on your machine.
 
 ## Prerequisites
