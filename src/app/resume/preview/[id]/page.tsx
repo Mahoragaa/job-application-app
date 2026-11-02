@@ -31,14 +31,19 @@ import {
   X,
   ArrowRight,
   Wand2,
+  Mail,
+  FileDown,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
+  generateDynamicCoverLetter,
   structuredResumeToMarkdown,
+  type CoverLetterTone,
   type ResumeChangeItem,
   type RevisionHistoryEntry,
   type StructuredResume,
 } from "@/lib/ai-resume";
+import { downloadResumeAsDocx } from "@/lib/docx-export";
 
 interface TailoredResumeDetail {
   id: string;
@@ -127,10 +132,15 @@ export default function ResumePreviewPage() {
   const [record, setRecord] = useState<TailoredResumeDetail | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Active tab: "diff" | "document" | "side_by_side" | "jd"
+  // Active tab: "diff" | "document" | "side_by_side" | "jd" | "cover_letter"
   const [activeTab, setActiveTab] = useState<
-    "diff" | "document" | "side_by_side" | "jd"
+    "diff" | "document" | "side_by_side" | "jd" | "cover_letter"
   >("diff");
+
+  // Cover letter tone & editable text
+  const [coverLetterTone, setCoverLetterTone] =
+    useState<CoverLetterTone>("professional");
+  const [customCoverLetter, setCustomCoverLetter] = useState<string>("");
 
   // Which version is rendered in Document Preview ("tailored" vs "original")
   const [previewVersion, setPreviewVersion] = useState<"tailored" | "original">(
@@ -206,6 +216,20 @@ export default function ResumePreviewPage() {
     previewVersion === "original"
       ? record?.originalContent
       : effectiveTailoredResume;
+
+  // Keep dynamic cover letter synced when resume or tone changes
+  useEffect(() => {
+    if (!record || !effectiveTailoredResume) return;
+    const generated = generateDynamicCoverLetter({
+      resume: effectiveTailoredResume,
+      company: record.company,
+      role: record.role,
+      jobDescription: record.jobDescription,
+      keywordsMatched: record.keywordsMatched,
+      tone: coverLetterTone,
+    });
+    setCustomCoverLetter(generated);
+  }, [record, effectiveTailoredResume, coverLetterTone]);
 
   // ── Decision Handlers: Use New vs Stick to Old vs Make Specific Changes ──
   const handleDecision = async (
@@ -353,6 +377,16 @@ export default function ResumePreviewPage() {
     URL.revokeObjectURL(url);
   };
 
+  const handleDownloadDocx = () => {
+    if (!activeDocumentResume || !record) return;
+    const suffix = previewVersion === "original" ? "original" : "tailored";
+    const fileName = `${record.company
+      .toLowerCase()
+      .replace(/\s+/g, "-")}-${suffix}-resume.docx`;
+    downloadResumeAsDocx(activeDocumentResume, fileName);
+    toast.success(`Downloaded ${fileName}`);
+  };
+
   const handleCopyMarkdown = async () => {
     if (!activeDocumentResume) return;
     const md = structuredResumeToMarkdown(activeDocumentResume);
@@ -415,6 +449,15 @@ export default function ResumePreviewPage() {
               >
                 <Copy className="h-3.5 w-3.5" />
                 Copy Text
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleDownloadDocx}
+                className="gap-1.5 border-primary/40 text-primary hover:bg-primary/10"
+              >
+                <FileDown className="h-3.5 w-3.5" />
+                Download .DOCX
               </Button>
               <Button
                 variant="outline"
@@ -576,6 +619,17 @@ export default function ResumePreviewPage() {
               >
                 <Target className="h-4 w-4" />
                 JD Keywords & Fit
+              </button>
+              <button
+                onClick={() => setActiveTab("cover_letter")}
+                className={`flex items-center gap-2 px-3.5 py-1.5 rounded-md text-xs sm:text-sm font-medium transition-all ${
+                  activeTab === "cover_letter"
+                    ? "bg-primary text-primary-foreground shadow"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                <Mail className="h-4 w-4" />
+                Cover Letter
               </button>
             </div>
 
@@ -1129,6 +1183,85 @@ export default function ResumePreviewPage() {
                       {record.jobDescription}
                     </pre>
                   </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* TAB 5: DYNAMIC COVER LETTER GENERATOR */}
+            {activeTab === "cover_letter" && (
+              <Card className="print:hidden">
+                <CardHeader>
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                    <div>
+                      <CardTitle className="text-lg flex items-center gap-2">
+                        <Mail className="h-4 w-4 text-primary" />
+                        Tailored Cover Letter for {record.company}
+                      </CardTitle>
+                      <CardDescription>
+                        Dynamically synthesized from your tailored resume and{" "}
+                        {record.company}&apos;s job description.
+                      </CardDescription>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <select
+                        value={coverLetterTone}
+                        onChange={(e) =>
+                          setCoverLetterTone(e.target.value as CoverLetterTone)
+                        }
+                        className="h-8 px-2.5 rounded-md border border-input bg-background text-xs"
+                      >
+                        <option value="professional">Professional Tone</option>
+                        <option value="enthusiastic">Enthusiastic Tone</option>
+                        <option value="technical">Deep Technical Tone</option>
+                      </select>
+
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={async () => {
+                          await navigator.clipboard.writeText(customCoverLetter);
+                          toast.success("Cover letter copied to clipboard!");
+                        }}
+                        className="gap-1.5"
+                      >
+                        <Copy className="h-3.5 w-3.5" />
+                        Copy
+                      </Button>
+
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          const blob = new Blob([customCoverLetter], {
+                            type: "text/plain;charset=utf-8;",
+                          });
+                          const url = URL.createObjectURL(blob);
+                          const link = document.createElement("a");
+                          link.href = url;
+                          link.download = `${record.company
+                            .toLowerCase()
+                            .replace(/\s+/g, "-")}-cover-letter.txt`;
+                          link.click();
+                          URL.revokeObjectURL(url);
+                        }}
+                        className="gap-1.5"
+                      >
+                        <Download className="h-3.5 w-3.5" />
+                        Download .TXT
+                      </Button>
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <textarea
+                    rows={18}
+                    value={customCoverLetter}
+                    onChange={(e) => setCustomCoverLetter(e.target.value)}
+                    className="w-full p-4 rounded-lg border border-input bg-background/80 text-xs sm:text-sm leading-relaxed font-sans resize-y focus:outline-none focus:ring-2 focus:ring-primary"
+                  />
                 </CardContent>
               </Card>
             )}

@@ -190,14 +190,17 @@ export async function classifyEmail(
   // Cheap pre-filter — never spend an AI call on known-noise senders
   if (isExcludedSender(from)) return notJobRelated(0.95);
 
-  const userPrompt = buildUserPrompt(subject, from, snippet, date);
+  // Default to zero-credit dynamic rule-based classification unless USE_PAID_AI="true"
+  if (process.env.USE_PAID_AI === "true") {
+    const userPrompt = buildUserPrompt(subject, from, snippet, date);
+    if (process.env.OPENAI_API_KEY) {
+      return classifyWithOpenAI(userPrompt);
+    }
+    if (process.env.GEMINI_API_KEY) {
+      return withRetry(() => classifyWithGemini(userPrompt));
+    }
+  }
 
-  if (process.env.OPENAI_API_KEY) {
-    return classifyWithOpenAI(userPrompt); // SDK retries 429/5xx internally
-  }
-  if (process.env.GEMINI_API_KEY) {
-    return withRetry(() => classifyWithGemini(userPrompt));
-  }
   return ruleBasedClassifier(subject, from, snippet);
 }
 

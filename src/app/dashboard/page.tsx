@@ -5,6 +5,7 @@ import { useSession } from "next-auth/react";
 import { redirect } from "next/navigation";
 import { DashboardHeader } from "@/components/dashboard/header";
 import { StatsCards } from "@/components/dashboard/stats-cards";
+import { AnalyticsCharts } from "@/components/dashboard/analytics-charts";
 import { ApplicationTable } from "@/components/dashboard/application-table";
 import { SyncButton } from "@/components/dashboard/sync-button";
 import { DateRangePicker } from "@/components/dashboard/date-range-picker";
@@ -175,6 +176,9 @@ export default function DashboardPage() {
           applications={applications}
           lastSyncTime={lastSyncTime}
         />
+
+        {/* ── Analytics & Funnel Charts ──────────── */}
+        <AnalyticsCharts applications={applications} />
 
         {/* ── Application Table ──────────────────── */}
         <ApplicationTable

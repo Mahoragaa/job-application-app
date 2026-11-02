@@ -25,6 +25,7 @@ import {
   Briefcase,
   Eye,
   Clock,
+  Globe,
 } from "lucide-react";
 import { toast } from "sonner";
 import type { StructuredResume, TailorMode } from "@/lib/ai-resume";
@@ -94,6 +95,8 @@ function ResumeStudioContent() {
   const [jobDescription, setJobDescription] = useState<string>("");
   const [mode, setMode] = useState<TailorMode>("balanced");
   const [isTailoring, setIsTailoring] = useState(false);
+  const [jobUrl, setJobUrl] = useState<string>("");
+  const [isScrapingUrl, setIsScrapingUrl] = useState(false);
 
   const loadData = useCallback(async () => {
     try {
@@ -159,6 +162,43 @@ function ResumeStudioContent() {
       if (found.jobDescription) {
         setJobDescription(found.jobDescription);
       }
+    }
+  };
+
+  const handleScrapeJobUrl = async () => {
+    if (!jobUrl.trim()) {
+      toast.error("Please enter a job posting URL first.");
+      return;
+    }
+    setIsScrapingUrl(true);
+    const toastId = toast.loading("Fetching job details from URL...");
+    try {
+      const res = await fetch("/api/resume/scrape-jd", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: jobUrl.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "Could not extract job description");
+      }
+      if (data.company) setCompany(data.company);
+      if (data.role) setRole(data.role);
+      if (data.jobDescription) setJobDescription(data.jobDescription);
+      toast.success("Job posting extracted!", {
+        id: toastId,
+        description: `Loaded ${data.role || "Role"} at ${data.company || "Company"}.`,
+      });
+    } catch (err) {
+      toast.error("Could not auto-fetch URL", {
+        id: toastId,
+        description:
+          err instanceof Error
+            ? err.message
+            : "Please paste the job description manually.",
+      });
+    } finally {
+      setIsScrapingUrl(false);
     }
   };
 
@@ -518,6 +558,33 @@ function ResumeStudioContent() {
                 </CardHeader>
                 <CardContent>
                   <form onSubmit={handleTailorSubmit} className="space-y-4">
+                    {/* Auto-Fetch from Job Posting URL */}
+                    <div className="space-y-1.5 rounded-lg border border-primary/20 bg-primary/5 p-3">
+                      <label className="text-xs font-medium text-foreground flex items-center gap-1.5">
+                        <Globe className="h-3.5 w-3.5 text-primary" />
+                        Auto-Fill from Job Posting URL (Greenhouse, Lever, Ashby, Career Pages)
+                      </label>
+                      <div className="flex flex-col sm:flex-row gap-2">
+                        <input
+                          type="url"
+                          value={jobUrl}
+                          onChange={(e) => setJobUrl(e.target.value)}
+                          placeholder="https://boards.greenhouse.io/company/jobs/..."
+                          className="flex-1 h-9 px-3 rounded-md border border-input bg-background text-xs"
+                        />
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          size="sm"
+                          disabled={isScrapingUrl}
+                          onClick={handleScrapeJobUrl}
+                          className="h-9 px-4 shrink-0"
+                        >
+                          {isScrapingUrl ? "Fetching..." : "Auto-Fetch JD"}
+                        </Button>
+                      </div>
+                    </div>
+
                     {/* Optional Link to Tracked Application */}
                     {applications.length > 0 && (
                       <div className="space-y-1.5">

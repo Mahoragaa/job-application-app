@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
@@ -35,6 +35,8 @@ import {
   Sparkles,
   ArrowUpDown,
   X,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import { toast } from "sonner";
 import { formatRelativeDate } from "@/lib/utils";
@@ -144,6 +146,12 @@ export function ApplicationTable({
   const [sortBy, setSortBy] = useState<"date_desc" | "date_asc" | "company_asc">(
     "date_desc"
   );
+  const [pageSize, setPageSize] = useState<number>(25);
+  const [currentPage, setCurrentPage] = useState<number>(1);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, statusFilter, sortBy, pageSize]);
 
   // Add / Edit Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -190,6 +198,16 @@ export function ApplicationTable({
 
     return list;
   }, [applications, searchQuery, statusFilter, sortBy]);
+
+  const totalPages = Math.max(
+    1,
+    Math.ceil(filteredApplications.length / pageSize)
+  );
+  const safePage = Math.min(currentPage, totalPages);
+  const paginatedApplications = useMemo(() => {
+    const start = (safePage - 1) * pageSize;
+    return filteredApplications.slice(start, start + pageSize);
+  }, [filteredApplications, safePage, pageSize]);
 
   const openAddModal = () => {
     setEditingApp(null);
@@ -476,7 +494,7 @@ export function ApplicationTable({
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredApplications.map((app) => {
+                {paginatedApplications.map((app) => {
                   const latestResume = app.tailoredResumes?.[0];
                   return (
                     <TableRow key={app.id} className="group cursor-default">
@@ -595,6 +613,60 @@ export function ApplicationTable({
                 })}
               </TableBody>
             </Table>
+          )}
+
+          {/* Pagination Footer */}
+          {filteredApplications.length > 0 && (
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pt-4 mt-4 border-t border-border/40 text-xs text-muted-foreground">
+              <div className="flex items-center gap-2">
+                <span>Rows per page:</span>
+                <select
+                  value={pageSize}
+                  onChange={(e) => setPageSize(Number(e.target.value))}
+                  className="h-7 rounded border border-input bg-background px-2 text-xs text-foreground"
+                >
+                  <option value={10}>10</option>
+                  <option value={25}>25</option>
+                  <option value={50}>50</option>
+                  <option value={100}>100</option>
+                </select>
+                <span>
+                  Showing {(safePage - 1) * pageSize + 1}–
+                  {Math.min(safePage * pageSize, filteredApplications.length)}{" "}
+                  of {filteredApplications.length}
+                </span>
+              </div>
+
+              <div className="flex items-center gap-1.5">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={safePage <= 1}
+                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                  className="h-7 px-2.5 text-xs gap-1"
+                >
+                  <ChevronLeft className="h-3.5 w-3.5" />
+                  Previous
+                </Button>
+                <span className="px-2 font-medium text-foreground">
+                  Page {safePage} of {totalPages}
+                </span>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={safePage >= totalPages}
+                  onClick={() =>
+                    setCurrentPage((p) => Math.min(totalPages, p + 1))
+                  }
+                  className="h-7 px-2.5 text-xs gap-1"
+                >
+                  Next
+                  <ChevronRight className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            </div>
           )}
         </CardContent>
       </Card>
