@@ -22,9 +22,6 @@ import {
 } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
-  CheckCircle2,
-  MessageSquare,
-  Minus,
   Inbox,
   ExternalLink,
   Search,
@@ -76,7 +73,7 @@ interface ApplicationTableProps {
 const STATUS_OPTIONS = [
   { value: "all", label: "All" },
   { value: "applied", label: "Applied" },
-  { value: "reply_received", label: "Reply Received" },
+  { value: "reply_received", label: "Replied" },
   { value: "interview", label: "Interview" },
   { value: "offer", label: "Offer" },
   { value: "rejected", label: "Rejected" },
@@ -97,10 +94,10 @@ function getStatusBadge(status: string) {
     }
   > = {
     applied: { label: "Applied", variant: "info" },
-    reply_received: { label: "Reply Received", variant: "success" },
+    reply_received: { label: "Replied", variant: "success" },
     interview: { label: "Interview", variant: "purple" },
     rejected: { label: "Rejected", variant: "destructive" },
-    offer: { label: "Offer! 🎉", variant: "warning" },
+    offer: { label: "Offer", variant: "warning" },
   };
 
   const config = statusMap[status] || {
@@ -109,30 +106,6 @@ function getStatusBadge(status: string) {
   };
 
   return <Badge variant={config.variant}>{config.label}</Badge>;
-}
-
-function getReplyIndicator(hasReply: boolean) {
-  if (hasReply) {
-    return (
-      <div className="flex items-center gap-2">
-        <span className="relative flex h-2.5 w-2.5">
-          <span className="reply-pulse absolute inline-flex h-full w-full rounded-full bg-emerald-400" />
-          <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500" />
-        </span>
-        <span className="text-emerald-400 font-medium text-sm flex items-center gap-1">
-          <MessageSquare className="h-3.5 w-3.5" />
-          Reply Received
-        </span>
-      </div>
-    );
-  }
-
-  return (
-    <div className="flex items-center gap-2 text-muted-foreground">
-      <Minus className="h-3.5 w-3.5" />
-      <span className="text-sm">Awaiting</span>
-    </div>
-  );
 }
 
 export function ApplicationTable({
@@ -234,7 +207,7 @@ export function ApplicationTable({
   const handleSaveApplication = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formCompany.trim() || !formRole.trim()) {
-      toast.error("Company and Role are required");
+      toast.error("Company and role are required");
       return;
     }
     setIsSaving(true);
@@ -259,12 +232,10 @@ export function ApplicationTable({
 
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        throw new Error(err.error || "Failed to save application");
+        throw new Error(err.error || "Failed to save");
       }
 
-      toast.success(
-        editingApp ? "Application updated" : "Application added to tracker"
-      );
+      toast.success(editingApp ? "Updated" : "Application added");
       setIsModalOpen(false);
       onRefresh();
     } catch (err) {
@@ -275,12 +246,12 @@ export function ApplicationTable({
   };
 
   const handleDeleteRow = async (app: ApplicationRow) => {
-    if (!window.confirm(`Delete "${app.role}" at ${app.company}?`)) return;
+    if (!window.confirm(`Remove "${app.role}" at ${app.company}?`)) return;
     try {
       const res = await fetch(`/api/applications/${app.id}`, {
         method: "DELETE",
       });
-      if (!res.ok) throw new Error("Failed to delete application");
+      if (!res.ok) throw new Error("Failed to delete");
       toast.success(`Removed ${app.company}`);
       onRefresh();
     } catch (err) {
@@ -290,14 +261,7 @@ export function ApplicationTable({
 
   const handleExportCsv = () => {
     if (filteredApplications.length === 0) return;
-    const headers = [
-      "Company",
-      "Role",
-      "Status",
-      "Reply Received",
-      "Applied Date",
-      "Notes",
-    ];
+    const headers = ["Company", "Role", "Status", "Replied", "Date", "Notes"];
     const escapeCsv = (val: string) => `"${val.replace(/"/g, '""')}"`;
     const rows = filteredApplications.map((a) => [
       escapeCsv(a.company),
@@ -314,7 +278,7 @@ export function ApplicationTable({
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = `job-applications-${new Date().toISOString().slice(0, 10)}.csv`;
+    link.download = `applications-${new Date().toISOString().slice(0, 10)}.csv`;
     link.click();
     URL.revokeObjectURL(url);
   };
@@ -324,22 +288,12 @@ export function ApplicationTable({
       <Card>
         <CardHeader>
           <CardTitle>Applications</CardTitle>
-          <CardDescription>Loading your job applications...</CardDescription>
+          <CardDescription>Loading...</CardDescription>
         </CardHeader>
-        <CardContent>
-          <div className="space-y-4">
-            {Array.from({ length: 5 }).map((_, i) => (
-              <div key={i} className="flex items-center gap-4">
-                <Skeleton className="h-10 w-10 rounded-lg" />
-                <div className="space-y-2 flex-1">
-                  <Skeleton className="h-4 w-[200px]" />
-                  <Skeleton className="h-3 w-[300px]" />
-                </div>
-                <Skeleton className="h-6 w-20 rounded-full" />
-                <Skeleton className="h-6 w-24 rounded-full" />
-              </div>
-            ))}
-          </div>
+        <CardContent className="space-y-3">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <Skeleton key={i} className="h-12 w-full rounded-lg" />
+          ))}
         </CardContent>
       </Card>
     );
@@ -351,59 +305,52 @@ export function ApplicationTable({
         <CardHeader className="space-y-4">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <CardTitle className="text-xl">Applications</CardTitle>
+              <CardTitle className="text-base">Applications</CardTitle>
               <CardDescription>
-                {filteredApplications.length} of {applications.length} job
-                {applications.length !== 1 ? "s" : ""} shown
+                {filteredApplications.length} of {applications.length} tracked
               </CardDescription>
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={openAddModal}
-                className="gap-1.5"
-              >
-                <Plus className="h-4 w-4" />
-                Add Application
+              <Button size="sm" onClick={openAddModal} className="gap-1.5">
+                <Plus className="h-3.5 w-3.5" />
+                Add Job
               </Button>
               <Button
                 variant="outline"
                 size="sm"
                 onClick={() => router.push("/resume")}
-                className="gap-1.5 border-primary/40 text-primary hover:bg-primary/10"
+                className="gap-1.5"
               >
-                <Sparkles className="h-4 w-4" />
-                AI Resume Tailor
+                <Sparkles className="h-3.5 w-3.5 text-primary" />
+                Tailor Resume
               </Button>
               {applications.length > 0 && (
                 <Button
-                  variant="outline"
+                  variant="ghost"
                   size="sm"
                   onClick={handleExportCsv}
                   className="gap-1.5"
                 >
-                  <Download className="h-4 w-4" />
-                  Export CSV
+                  <Download className="h-3.5 w-3.5" />
+                  CSV
                 </Button>
               )}
             </div>
           </div>
 
-          {/* Search + Sort + Filter Bar */}
           {applications.length > 0 && (
-            <div className="flex flex-col gap-3 pt-1">
-              <div className="flex flex-col sm:flex-row gap-3">
-                {/* Search Box */}
+            <div className="flex flex-col gap-3">
+              <div className="flex flex-col sm:flex-row gap-2.5">
+                {/* Search */}
                 <div className="relative flex-1">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
                   <input
                     type="text"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="Search by company, role, snippet, or notes..."
-                    className="w-full h-9 pl-9 pr-8 rounded-md border border-input bg-background/60 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                    placeholder="Filter by company, role, or notes..."
+                    className="w-full h-8 pl-8 pr-8 rounded-lg border border-white/[0.08] bg-secondary/40 text-xs focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all"
                   />
                   {searchQuery && (
                     <button
@@ -415,9 +362,9 @@ export function ApplicationTable({
                   )}
                 </div>
 
-                {/* Sort Select */}
-                <div className="flex items-center gap-2">
-                  <ArrowUpDown className="h-4 w-4 text-muted-foreground shrink-0" />
+                {/* Sort */}
+                <div className="flex items-center gap-1.5">
+                  <ArrowUpDown className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                   <select
                     value={sortBy}
                     onChange={(e) =>
@@ -425,16 +372,16 @@ export function ApplicationTable({
                         e.target.value as "date_desc" | "date_asc" | "company_asc"
                       )
                     }
-                    className="h-9 rounded-md border border-input bg-background/60 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                    className="h-8 rounded-lg border border-white/[0.08] bg-secondary/40 px-2.5 text-xs focus:outline-none focus:ring-2 focus:ring-primary/50"
                   >
-                    <option value="date_desc">Newest First</option>
-                    <option value="date_asc">Oldest First</option>
-                    <option value="company_asc">Company (A–Z)</option>
+                    <option value="date_desc">Newest</option>
+                    <option value="date_asc">Oldest</option>
+                    <option value="company_asc">Company A–Z</option>
                   </select>
                 </div>
               </div>
 
-              {/* Status Filter Pills */}
+              {/* Tactile Filter Pills */}
               <div className="flex flex-wrap gap-1.5">
                 {STATUS_OPTIONS.map((tab) => {
                   const count = statusCounts[tab.value] || 0;
@@ -443,13 +390,13 @@ export function ApplicationTable({
                     <button
                       key={tab.value}
                       onClick={() => setStatusFilter(tab.value)}
-                      className={`px-3 py-1 rounded-full text-xs font-medium transition-colors border ${
+                      className={`tactile-pill px-2.5 py-1 rounded-md text-[11px] font-medium border ${
                         active
-                          ? "bg-primary text-primary-foreground border-primary"
-                          : "bg-secondary/40 text-muted-foreground border-border/50 hover:text-foreground hover:bg-secondary"
+                          ? "bg-primary text-primary-foreground border-primary/50 shadow-[inset_0_1px_0_rgba(255,255,255,0.2)]"
+                          : "bg-secondary/35 text-muted-foreground border-white/[0.06] hover:text-foreground hover:bg-secondary/70"
                       }`}
                     >
-                      {tab.label} ({count})
+                      {tab.label} · {count}
                     </button>
                   );
                 })}
@@ -460,57 +407,66 @@ export function ApplicationTable({
 
         <CardContent>
           {applications.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-14">
-              <div className="rounded-full bg-muted p-4 mb-4">
-                <Inbox className="h-8 w-8 text-muted-foreground" />
+            <div className="flex flex-col items-center justify-center py-12">
+              <div className="rounded-xl bg-secondary/60 border border-white/[0.06] p-3.5 mb-3">
+                <Inbox className="h-6 w-6 text-muted-foreground" />
               </div>
-              <h3 className="text-lg font-semibold mb-1">
-                No applications yet
-              </h3>
-              <p className="text-sm text-muted-foreground text-center max-w-sm mb-4">
-                Click <strong>&quot;Sync Inbox&quot;</strong> to scan your Gmail
-                for job application emails, or add one manually.
+              <h3 className="text-sm font-semibold mb-1">No applications yet</h3>
+              <p className="text-xs text-muted-foreground text-center max-w-xs mb-4">
+                Sync your Gmail inbox or log a role manually to start tracking.
               </p>
               <Button variant="outline" size="sm" onClick={openAddModal}>
-                <Plus className="h-4 w-4 mr-1.5" />
-                Add First Application
+                <Plus className="h-3.5 w-3.5 mr-1.5" />
+                Add Application
               </Button>
             </div>
           ) : filteredApplications.length === 0 ? (
-            <div className="text-center py-12 text-muted-foreground text-sm">
-              No applications match your current filter.
+            <div className="text-center py-10 text-muted-foreground text-xs">
+              No matching applications found.
             </div>
           ) : (
             <Table>
               <TableHeader>
-                <TableRow className="hover:bg-transparent">
-                  <TableHead className="w-[220px]">Company</TableHead>
-                  <TableHead>Role</TableHead>
-                  <TableHead className="w-[150px]">Reply Status</TableHead>
-                  <TableHead className="w-[120px]">Status</TableHead>
-                  <TableHead className="w-[170px]">Tailored Resume</TableHead>
-                  <TableHead className="text-right w-[110px]">Date</TableHead>
-                  <TableHead className="w-[120px] text-right">Actions</TableHead>
+                <TableRow className="hover:bg-transparent border-white/[0.06]">
+                  <TableHead className="w-[210px] text-xs">Company</TableHead>
+                  <TableHead className="text-xs">Role</TableHead>
+                  <TableHead className="w-[115px] text-xs">Status</TableHead>
+                  <TableHead className="w-[145px] text-xs">Resume</TableHead>
+                  <TableHead className="text-right w-[100px] text-xs">
+                    Applied
+                  </TableHead>
+                  <TableHead className="w-[105px] text-right text-xs" />
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {paginatedApplications.map((app) => {
                   const latestResume = app.tailoredResumes?.[0];
                   return (
-                    <TableRow key={app.id} className="group cursor-default">
+                    <TableRow
+                      key={app.id}
+                      className="group border-white/[0.05] hover:bg-white/[0.02]"
+                    >
                       {/* Company */}
-                      <TableCell>
-                        <div className="flex items-center gap-3">
-                          <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-gradient-to-br from-primary/20 to-primary/5 border border-primary/10 text-primary font-bold text-sm shrink-0">
+                      <TableCell className="py-3">
+                        <div className="flex items-center gap-2.5">
+                          <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-secondary/80 border border-white/[0.08] text-foreground font-semibold text-xs shrink-0">
                             {app.company.charAt(0).toUpperCase()}
                           </div>
                           <div className="min-w-0">
-                            <p className="font-medium leading-none mb-0.5 truncate">
-                              {app.company}
-                            </p>
+                            <div className="flex items-center gap-1.5">
+                              <p className="font-medium text-sm leading-none truncate">
+                                {app.company}
+                              </p>
+                              {app.hasReply && (
+                                <span
+                                  className="h-1.5 w-1.5 rounded-full bg-emerald-400 shrink-0"
+                                  title="Reply received"
+                                />
+                              )}
+                            </div>
                             {(app.notes || app.snippet) && (
-                              <p className="text-xs text-muted-foreground truncate max-w-[160px]">
-                                {app.notes ? `📝 ${app.notes}` : app.snippet}
+                              <p className="text-[11px] text-muted-foreground truncate max-w-[155px] mt-1">
+                                {app.notes || app.snippet}
                               </p>
                             )}
                           </div>
@@ -518,44 +474,27 @@ export function ApplicationTable({
                       </TableCell>
 
                       {/* Role */}
-                      <TableCell>
-                        <div className="flex flex-col">
-                          <span className="font-medium">{app.role}</span>
-                          <span className="text-xs text-blue-400 flex items-center gap-1 mt-0.5">
-                            <CheckCircle2 className="h-3 w-3" />
-                            {app.emailId ? "Synced from Gmail" : "Manual entry"}
-                          </span>
-                        </div>
+                      <TableCell className="py-3">
+                        <span className="text-xs sm:text-sm font-medium text-foreground/90">
+                          {app.role}
+                        </span>
                       </TableCell>
 
-                      {/* Reply Status */}
-                      <TableCell>{getReplyIndicator(app.hasReply)}</TableCell>
+                      {/* Status */}
+                      <TableCell className="py-3">
+                        {getStatusBadge(app.status)}
+                      </TableCell>
 
-                      {/* Status Badge */}
-                      <TableCell>{getStatusBadge(app.status)}</TableCell>
-
-                      {/* Tailored Resume Action / Preview Link */}
-                      <TableCell>
+                      {/* Resume Fit / Tailor Action */}
+                      <TableCell className="py-3">
                         {latestResume ? (
-                          <div className="flex items-center gap-1.5">
-                            <Link
-                              href={`/resume/preview/${latestResume.id}`}
-                              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-violet-500/15 text-violet-300 border border-violet-500/30 hover:bg-violet-500/25 transition-colors"
-                              title="Open Resume Diff & Preview"
-                            >
-                              <Sparkles className="h-3.5 w-3.5" />
-                              <span>{latestResume.matchScoreAfter}% Fit</span>
-                              <span className="text-[10px] opacity-75">
-                                (
-                                {latestResume.status === "accepted_new"
-                                  ? "Accepted"
-                                  : latestResume.status === "kept_original"
-                                  ? "Old Resume"
-                                  : "Preview"}
-                                )
-                              </span>
-                            </Link>
-                          </div>
+                          <Link
+                            href={`/resume/preview/${latestResume.id}`}
+                            className="tactile-pill inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium bg-indigo-500/12 text-indigo-300 border border-indigo-500/25 hover:bg-indigo-500/20"
+                          >
+                            <Sparkles className="h-3 w-3" />
+                            <span>{latestResume.matchScoreAfter}% Fit</span>
+                          </Link>
                         ) : (
                           <Link
                             href={`/resume?applicationId=${
@@ -563,22 +502,22 @@ export function ApplicationTable({
                             }&company=${encodeURIComponent(
                               app.company
                             )}&role=${encodeURIComponent(app.role)}`}
-                            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-secondary/60 text-muted-foreground hover:text-primary hover:bg-primary/10 border border-border/50 transition-colors"
+                            className="tactile-pill inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium bg-secondary/50 text-muted-foreground hover:text-foreground border border-white/[0.07] hover:border-white/[0.15]"
                           >
-                            <Sparkles className="h-3.5 w-3.5" />
-                            Tailor Resume
+                            <Sparkles className="h-3 w-3 text-primary" />
+                            Tailor
                           </Link>
                         )}
                       </TableCell>
 
                       {/* Date */}
-                      <TableCell className="text-right text-muted-foreground text-sm">
+                      <TableCell className="py-3 text-right text-muted-foreground text-xs">
                         {formatRelativeDate(new Date(app.appliedDate))}
                       </TableCell>
 
-                      {/* Actions */}
-                      <TableCell className="text-right">
-                        <div className="flex items-center justify-end gap-1">
+                      {/* Row Actions */}
+                      <TableCell className="py-3 text-right">
+                        <div className="flex items-center justify-end gap-0.5 opacity-80 group-hover:opacity-100 transition-opacity">
                           {(app.threadId || app.emailId) && (
                             <a
                               href={`https://mail.google.com/mail/u/0/#all/${
@@ -586,23 +525,23 @@ export function ApplicationTable({
                               }`}
                               target="_blank"
                               rel="noopener noreferrer"
-                              className="inline-flex items-center justify-center w-8 h-8 rounded-md hover:bg-primary/10 text-muted-foreground hover:text-primary transition-colors"
-                              title="Open thread in Gmail"
+                              className="tactile-pill inline-flex items-center justify-center w-7 h-7 rounded-md hover:bg-white/[0.07] text-muted-foreground hover:text-foreground"
+                              title="Open in Gmail"
                             >
                               <ExternalLink className="h-3.5 w-3.5" />
                             </a>
                           )}
                           <button
                             onClick={() => openEditModal(app)}
-                            className="inline-flex items-center justify-center w-8 h-8 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
-                            title="Edit application"
+                            className="tactile-pill inline-flex items-center justify-center w-7 h-7 rounded-md hover:bg-white/[0.07] text-muted-foreground hover:text-foreground"
+                            title="Edit"
                           >
                             <Pencil className="h-3.5 w-3.5" />
                           </button>
                           <button
                             onClick={() => handleDeleteRow(app)}
-                            className="inline-flex items-center justify-center w-8 h-8 rounded-md hover:bg-red-500/10 text-muted-foreground hover:text-red-400 transition-colors"
-                            title="Delete application"
+                            className="tactile-pill inline-flex items-center justify-center w-7 h-7 rounded-md hover:bg-rose-500/15 text-muted-foreground hover:text-rose-400"
+                            title="Delete"
                           >
                             <Trash2 className="h-3.5 w-3.5" />
                           </button>
@@ -615,15 +554,15 @@ export function ApplicationTable({
             </Table>
           )}
 
-          {/* Pagination Footer */}
-          {filteredApplications.length > 0 && (
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pt-4 mt-4 border-t border-border/40 text-xs text-muted-foreground">
+          {/* Pagination */}
+          {filteredApplications.length > pageSize && (
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pt-4 mt-3 border-t border-white/[0.06] text-xs text-muted-foreground">
               <div className="flex items-center gap-2">
-                <span>Rows per page:</span>
+                <span>Show</span>
                 <select
                   value={pageSize}
                   onChange={(e) => setPageSize(Number(e.target.value))}
-                  className="h-7 rounded border border-input bg-background px-2 text-xs text-foreground"
+                  className="h-7 rounded-md border border-white/[0.08] bg-secondary/50 px-2 text-xs text-foreground"
                 >
                   <option value={10}>10</option>
                   <option value={25}>25</option>
@@ -631,7 +570,7 @@ export function ApplicationTable({
                   <option value={100}>100</option>
                 </select>
                 <span>
-                  Showing {(safePage - 1) * pageSize + 1}–
+                  {(safePage - 1) * pageSize + 1}–
                   {Math.min(safePage * pageSize, filteredApplications.length)}{" "}
                   of {filteredApplications.length}
                 </span>
@@ -647,10 +586,10 @@ export function ApplicationTable({
                   className="h-7 px-2.5 text-xs gap-1"
                 >
                   <ChevronLeft className="h-3.5 w-3.5" />
-                  Previous
+                  Prev
                 </Button>
                 <span className="px-2 font-medium text-foreground">
-                  Page {safePage} of {totalPages}
+                  {safePage} / {totalPages}
                 </span>
                 <Button
                   type="button"
@@ -671,122 +610,119 @@ export function ApplicationTable({
         </CardContent>
       </Card>
 
-      {/* Add / Edit Application Modal */}
+      {/* Clean Add / Edit Application Modal */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
-          <div className="w-full max-w-lg rounded-xl border border-border bg-card p-6 shadow-2xl space-y-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4 animate-in fade-in duration-150">
+          <div className="w-full max-w-md rounded-xl border border-white/[0.1] bg-card p-5 shadow-2xl space-y-4">
             <div className="flex items-center justify-between">
-              <h3 className="text-lg font-semibold">
-                {editingApp ? "Edit Application" : "Add Job Application"}
+              <h3 className="text-sm font-semibold">
+                {editingApp ? "Edit Application" : "New Application"}
               </h3>
               <button
                 onClick={() => setIsModalOpen(false)}
-                className="text-muted-foreground hover:text-foreground"
+                className="tactile-pill p-1 rounded-md text-muted-foreground hover:text-foreground"
               >
-                <X className="h-5 w-5" />
+                <X className="h-4 w-4" />
               </button>
             </div>
 
-            <form onSubmit={handleSaveApplication} className="space-y-4">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-muted-foreground">
-                    Company *
+            <form onSubmit={handleSaveApplication} className="space-y-3.5">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-[11px] font-medium text-muted-foreground">
+                    Company
                   </label>
                   <input
                     type="text"
                     required
                     value={formCompany}
                     onChange={(e) => setFormCompany(e.target.value)}
-                    placeholder="e.g. Stripe"
-                    className="w-full h-9 px-3 rounded-md border border-input bg-background text-sm"
+                    placeholder="Stripe"
+                    className="w-full h-8 px-2.5 rounded-lg border border-white/[0.1] bg-secondary/40 text-xs focus:outline-none focus:ring-2 focus:ring-primary/50"
                   />
                 </div>
-                <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-muted-foreground">
-                    Role *
+                <div className="space-y-1">
+                  <label className="text-[11px] font-medium text-muted-foreground">
+                    Role
                   </label>
                   <input
                     type="text"
                     required
                     value={formRole}
                     onChange={(e) => setFormRole(e.target.value)}
-                    placeholder="e.g. Full Stack Engineer"
-                    className="w-full h-9 px-3 rounded-md border border-input bg-background text-sm"
+                    placeholder="Software Engineer"
+                    className="w-full h-8 px-2.5 rounded-lg border border-white/[0.1] bg-secondary/40 text-xs focus:outline-none focus:ring-2 focus:ring-primary/50"
                   />
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-muted-foreground">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-[11px] font-medium text-muted-foreground">
                     Status
                   </label>
                   <select
                     value={formStatus}
                     onChange={(e) => setFormStatus(e.target.value)}
-                    className="w-full h-9 px-3 rounded-md border border-input bg-background text-sm"
+                    className="w-full h-8 px-2.5 rounded-lg border border-white/[0.1] bg-secondary/40 text-xs"
                   >
                     <option value="applied">Applied</option>
-                    <option value="reply_received">Reply Received</option>
+                    <option value="reply_received">Replied</option>
                     <option value="interview">Interview</option>
                     <option value="offer">Offer</option>
                     <option value="rejected">Rejected</option>
                   </select>
                 </div>
-                <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-muted-foreground">
-                    Applied Date
+                <div className="space-y-1">
+                  <label className="text-[11px] font-medium text-muted-foreground">
+                    Date
                   </label>
                   <input
                     type="date"
                     value={formDate}
                     onChange={(e) => setFormDate(e.target.value)}
-                    className="w-full h-9 px-3 rounded-md border border-input bg-background text-sm"
+                    className="w-full h-8 px-2.5 rounded-lg border border-white/[0.1] bg-secondary/40 text-xs"
                   />
                 </div>
               </div>
 
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-muted-foreground">
-                  Notes (Recruiter name, salary range, next steps)
+              <div className="space-y-1">
+                <label className="text-[11px] font-medium text-muted-foreground">
+                  Notes
                 </label>
                 <input
                   type="text"
                   value={formNotes}
                   onChange={(e) => setFormNotes(e.target.value)}
-                  placeholder="Optional personal notes..."
-                  className="w-full h-9 px-3 rounded-md border border-input bg-background text-sm"
+                  placeholder="Optional recruiter or interview notes..."
+                  className="w-full h-8 px-2.5 rounded-lg border border-white/[0.1] bg-secondary/40 text-xs"
                 />
               </div>
 
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-muted-foreground">
-                  Job Description (Optional — used by AI Resume Tailor)
+              <div className="space-y-1">
+                <label className="text-[11px] font-medium text-muted-foreground">
+                  Job Description (Optional)
                 </label>
                 <textarea
-                  rows={4}
+                  rows={3}
                   value={formJd}
                   onChange={(e) => setFormJd(e.target.value)}
-                  placeholder="Paste the job description here to tailor your resume for this role..."
-                  className="w-full p-3 rounded-md border border-input bg-background text-sm resize-y"
+                  placeholder="Paste JD to tailor your resume..."
+                  className="w-full p-2.5 rounded-lg border border-white/[0.1] bg-secondary/40 text-xs resize-y"
                 />
               </div>
 
-              <div className="flex items-center justify-end gap-2 pt-2">
+              <div className="flex items-center justify-end gap-2 pt-1">
                 <Button
                   type="button"
                   variant="ghost"
+                  size="sm"
                   onClick={() => setIsModalOpen(false)}
                 >
                   Cancel
                 </Button>
-                <Button type="submit" disabled={isSaving}>
-                  {isSaving
-                    ? "Saving..."
-                    : editingApp
-                    ? "Save Changes"
-                    : "Add Application"}
+                <Button type="submit" size="sm" disabled={isSaving}>
+                  {isSaving ? "Saving..." : editingApp ? "Save" : "Add"}
                 </Button>
               </div>
             </form>

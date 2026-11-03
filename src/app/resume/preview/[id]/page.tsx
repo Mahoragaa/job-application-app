@@ -26,7 +26,6 @@ import {
   FileText,
   Target,
   History,
-  Send,
   Check,
   X,
   ArrowRight,
@@ -64,20 +63,38 @@ interface TailoredResumeDetail {
   revisionHistory: RevisionHistoryEntry[];
   updatedAt: string;
   baseResume?: { id: string; title: string; fileName: string | null };
-  application?: { id: string; company: string; role: string; status: string } | null;
+  application?: {
+    id: string;
+    company: string;
+    role: string;
+    status: string;
+  } | null;
 }
 
-const QUICK_PROMPTS = [
-  "Make experience bullets more concise and metric-driven",
-  "Keep my original Professional Summary but keep the new skills",
-  "Emphasize leadership, system design, and scalability",
-  "Tone down buzzwords and make the phrasing sound more natural",
+const QUICK_CHIPS = [
+  {
+    label: "Shorter bullets",
+    prompt: "Make experience bullets shorter and more concise",
+  },
+  {
+    label: "Add metrics",
+    prompt: "Make experience bullets more metric-driven and quantified",
+  },
+  {
+    label: "Keep old summary",
+    prompt: "Keep my original Professional Summary",
+  },
+  {
+    label: "Natural tone",
+    prompt: "Tone down buzzwords and make phrasing sound natural",
+  },
 ];
 
-/**
- * Computes a simple word-level diff between `before` and `after` strings for visual highlighting.
- */
-function renderWordDiff(before: string, after: string, mode: "before" | "after") {
+function renderWordDiff(
+  before: string,
+  after: string,
+  mode: "before" | "after"
+) {
   const beforeWords = before.split(/(\s+)/);
   const afterWords = after.split(/(\s+)/);
 
@@ -97,7 +114,7 @@ function renderWordDiff(before: string, after: string, mode: "before" | "after")
           key={idx}
           className={
             removed
-              ? "bg-red-500/25 text-red-200 line-through rounded px-0.5"
+              ? "bg-rose-500/20 text-rose-200 line-through rounded px-0.5"
               : ""
           }
         >
@@ -115,7 +132,7 @@ function renderWordDiff(before: string, after: string, mode: "before" | "after")
         key={idx}
         className={
           added
-            ? "bg-emerald-500/25 text-emerald-200 font-medium rounded px-0.5"
+            ? "bg-emerald-500/20 text-emerald-200 font-medium rounded px-0.5"
             : ""
         }
       >
@@ -132,22 +149,18 @@ export default function ResumePreviewPage() {
   const [record, setRecord] = useState<TailoredResumeDetail | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Active tab: "diff" | "document" | "side_by_side" | "jd" | "cover_letter"
   const [activeTab, setActiveTab] = useState<
     "diff" | "document" | "side_by_side" | "jd" | "cover_letter"
   >("diff");
 
-  // Cover letter tone & editable text
-  const [coverLetterTone, setCoverLetterTone] =
-    useState<CoverLetterTone>("professional");
-  const [customCoverLetter, setCustomCoverLetter] = useState<string>("");
-
-  // Which version is rendered in Document Preview ("tailored" vs "original")
   const [previewVersion, setPreviewVersion] = useState<"tailored" | "original">(
     "tailored"
   );
 
-  // AI Specific Refinement Controls
+  const [coverLetterTone, setCoverLetterTone] =
+    useState<CoverLetterTone>("professional");
+  const [customCoverLetter, setCustomCoverLetter] = useState<string>("");
+
   const [aiInstruction, setAiInstruction] = useState("");
   const [sectionTarget, setSectionTarget] = useState<string>("");
   const [isRefining, setIsRefining] = useState(false);
@@ -157,7 +170,7 @@ export default function ResumePreviewPage() {
     try {
       const res = await fetch(`/api/resume/tailor/${params.id}`);
       if (!res.ok) {
-        toast.error("Could not load tailored resume preview");
+        toast.error("Could not load preview");
         router.push("/resume");
         return;
       }
@@ -177,10 +190,6 @@ export default function ResumePreviewPage() {
     fetchRecord();
   }, [fetchRecord]);
 
-  /**
-   * Computes the effective tailored resume by applying any user-rejected individual changes
-   * back to their original values.
-   */
   const effectiveTailoredResume = useMemo<StructuredResume | null>(() => {
     if (!record) return null;
     const base = record.originalContent;
@@ -217,7 +226,6 @@ export default function ResumePreviewPage() {
       ? record?.originalContent
       : effectiveTailoredResume;
 
-  // Keep dynamic cover letter synced when resume or tone changes
   useEffect(() => {
     if (!record || !effectiveTailoredResume) return;
     const generated = generateDynamicCoverLetter({
@@ -231,7 +239,6 @@ export default function ResumePreviewPage() {
     setCustomCoverLetter(generated);
   }, [record, effectiveTailoredResume, coverLetterTone]);
 
-  // ── Decision Handlers: Use New vs Stick to Old vs Make Specific Changes ──
   const handleDecision = async (
     nextStatus: "accepted_new" | "kept_original"
   ) => {
@@ -249,23 +256,18 @@ export default function ResumePreviewPage() {
         }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to save decision");
+      if (!res.ok) throw new Error(data.error || "Failed to save");
 
       setRecord(data.tailoredResume);
       setPreviewVersion(
         nextStatus === "kept_original" ? "original" : "tailored"
       );
 
-      if (nextStatus === "accepted_new") {
-        toast.success("Tailored resume accepted!", {
-          description: `Marked as your active resume for ${record.role} at ${record.company}.`,
-        });
-      } else {
-        toast.info("Sticking with your original base resume", {
-          description:
-            "Switched preview to your original resume. You can switch back or refine with AI anytime.",
-        });
-      }
+      toast.success(
+        nextStatus === "accepted_new"
+          ? "Using tailored resume"
+          : "Reverted to original resume"
+      );
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to save");
     } finally {
@@ -273,7 +275,6 @@ export default function ResumePreviewPage() {
     }
   };
 
-  // ── Toggle individual change item on/off ──
   const handleToggleChangeItem = async (changeId: string) => {
     if (!record) return;
     const updatedChanges = record.changeSummary.map((c) =>
@@ -292,20 +293,19 @@ export default function ResumePreviewPage() {
         }),
       });
     } catch {
-      // Optimistic local state already updated
+      // Local state updated optimistically
     }
   };
 
-  // ── Make Specific Changes via AI ──
   const handleAiRefine = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!record || !aiInstruction.trim()) {
-      toast.error("Please enter what specific changes you want the AI to make.");
+      toast.error("Enter an instruction first");
       return;
     }
 
     setIsRefining(true);
-    const toastId = toast.loading("AI is applying your specific changes...");
+    const toastId = toast.loading("Applying edits...");
 
     try {
       const res = await fetch(`/api/resume/tailor/${record.id}`, {
@@ -324,12 +324,9 @@ export default function ResumePreviewPage() {
       setRecord(data.tailoredResume);
       setPreviewVersion("tailored");
       setAiInstruction("");
-      toast.success("Resume updated by AI!", {
-        id: toastId,
-        description: data.message,
-      });
+      toast.success("Updated", { id: toastId, description: data.message });
     } catch (err) {
-      toast.error("AI refinement failed", {
+      toast.error("Update failed", {
         id: toastId,
         description: err instanceof Error ? err.message : "Unknown error",
       });
@@ -340,7 +337,7 @@ export default function ResumePreviewPage() {
 
   const handleRestoreRevision = async (revisionId: string) => {
     if (!record) return;
-    const toastId = toast.loading("Restoring selected version...");
+    const toastId = toast.loading("Restoring...");
     try {
       const res = await fetch(`/api/resume/tailor/${record.id}`, {
         method: "PATCH",
@@ -353,9 +350,9 @@ export default function ResumePreviewPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Restore failed");
       setRecord(data.tailoredResume);
-      toast.success("Version restored!", { id: toastId });
+      toast.success("Version restored", { id: toastId });
     } catch (err) {
-      toast.error("Could not restore version", {
+      toast.error("Restore failed", {
         id: toastId,
         description: err instanceof Error ? err.message : "Unknown error",
       });
@@ -391,11 +388,7 @@ export default function ResumePreviewPage() {
     if (!activeDocumentResume) return;
     const md = structuredResumeToMarkdown(activeDocumentResume);
     await navigator.clipboard.writeText(md);
-    toast.success(
-      `Copied ${
-        previewVersion === "original" ? "original" : "tailored"
-      } resume to clipboard!`
-    );
+    toast.success("Copied to clipboard");
   };
 
   const handlePrintPdf = () => {
@@ -409,11 +402,11 @@ export default function ResumePreviewPage() {
     return (
       <div className="min-h-screen bg-background mesh-gradient">
         <DashboardHeader />
-        <main className="container py-8 space-y-6">
-          <Skeleton className="h-28 w-full rounded-xl" />
-          <div className="grid gap-6 lg:grid-cols-12">
-            <Skeleton className="h-[600px] lg:col-span-8 rounded-xl" />
-            <Skeleton className="h-[600px] lg:col-span-4 rounded-xl" />
+        <main className="container py-7 space-y-5">
+          <Skeleton className="h-24 w-full rounded-xl" />
+          <div className="grid gap-5 lg:grid-cols-12">
+            <Skeleton className="h-[520px] lg:col-span-8 rounded-xl" />
+            <Skeleton className="h-[520px] lg:col-span-4 rounded-xl" />
           </div>
         </main>
       </div>
@@ -428,251 +421,231 @@ export default function ResumePreviewPage() {
     <div className="min-h-screen bg-background mesh-gradient print:bg-white print:text-black">
       <DashboardHeader />
 
-      <main className="container py-6 space-y-6 print:p-0 print:max-w-none">
-        {/* ── Top Navigation & Decision Banner (Hidden when printing PDF) ── */}
+      <main className="container py-6 space-y-5 print:p-0 print:max-w-none">
+        {/* ── Top Controls (Hidden in Print) ── */}
         <div className="print:hidden space-y-4">
+          {/* Utility Row: Back + Compact Exports */}
           <div className="flex flex-wrap items-center justify-between gap-2">
             <Link
               href="/resume"
-              className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+              className="tactile-pill inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground py-1 px-2 -ml-2 rounded-md"
             >
-              <ArrowLeft className="h-4 w-4" />
-              Back to AI Resume Studio
+              <ArrowLeft className="h-3.5 w-3.5" />
+              Studio
             </Link>
 
-            <div className="flex flex-wrap items-center gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleCopyMarkdown}
-                className="gap-1.5"
-              >
-                <Copy className="h-3.5 w-3.5" />
-                Copy Text
-              </Button>
+            <div className="flex flex-wrap items-center gap-1.5">
               <Button
                 variant="outline"
                 size="sm"
                 onClick={handleDownloadDocx}
-                className="gap-1.5 border-primary/40 text-primary hover:bg-primary/10"
+                className="h-7 px-2.5 gap-1.5"
               >
-                <FileDown className="h-3.5 w-3.5" />
-                Download .DOCX
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleDownloadMarkdown}
-                className="gap-1.5"
-              >
-                <Download className="h-3.5 w-3.5" />
-                Download .MD
+                <FileDown className="h-3.5 w-3.5 text-primary" />
+                DOCX
               </Button>
               <Button
                 variant="outline"
                 size="sm"
                 onClick={handlePrintPdf}
-                className="gap-1.5"
+                className="h-7 px-2.5 gap-1.5"
               >
                 <Printer className="h-3.5 w-3.5" />
-                Print / Save PDF
+                PDF
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleDownloadMarkdown}
+                className="h-7 px-2.5 gap-1.5"
+              >
+                <Download className="h-3.5 w-3.5" />
+                MD
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleCopyMarkdown}
+                className="h-7 px-2.5 gap-1.5"
+              >
+                <Copy className="h-3.5 w-3.5" />
+                Copy
               </Button>
             </div>
           </div>
 
-          {/* Decision Card */}
-          <Card className="border-primary/30 bg-card/90 shadow-xl">
-            <CardContent className="p-5 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-5">
-              <div className="space-y-1.5">
-                <div className="flex flex-wrap items-center gap-2.5">
-                  <h2 className="text-xl font-bold tracking-tight">
-                    {record.role} @ {record.company}
+          {/* Concise Decision Header Card */}
+          <Card>
+            <CardContent className="p-4 sm:px-5 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+              <div className="space-y-1.5 min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h2 className="text-base sm:text-lg font-semibold tracking-tight truncate">
+                    {record.role}
                   </h2>
+                  <span className="text-muted-foreground text-sm">·</span>
+                  <span className="text-sm font-medium text-indigo-300">
+                    {record.company}
+                  </span>
+
                   {record.status === "accepted_new" ? (
-                    <Badge variant="success">
-                      <CheckCircle2 className="h-3.5 w-3.5 mr-1" />
-                      Decision: Going with Tailored Resume
-                    </Badge>
+                    <Badge variant="success">Using Tailored</Badge>
                   ) : record.status === "kept_original" ? (
-                    <Badge variant="secondary">
-                      Decision: Sticking with Original Resume
-                    </Badge>
+                    <Badge variant="secondary">Using Original</Badge>
                   ) : (
-                    <Badge variant="purple">Reviewing Changes</Badge>
+                    <Badge variant="purple">Draft</Badge>
                   )}
                 </div>
 
-                <div className="flex flex-wrap items-center gap-4 text-xs text-muted-foreground">
-                  <span>
-                    Base Resume:{" "}
-                    <strong className="text-foreground">
-                      {record.baseResume?.title || "Master Resume"}
-                    </strong>
-                  </span>
-                  <span className="flex items-center gap-1.5">
-                    ATS Fit Score:
-                    <span className="px-1.5 py-0.5 rounded bg-secondary text-muted-foreground">
-                      Before: {record.matchScoreBefore}%
-                    </span>
-                    <ArrowRight className="h-3.5 w-3.5 text-emerald-400" />
-                    <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-bold border border-emerald-500/30">
-                      After: {record.matchScoreAfter}%
+                <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+                  <span className="inline-flex items-center gap-1.5">
+                    Fit:
+                    <span>{record.matchScoreBefore}%</span>
+                    <ArrowRight className="h-3 w-3 text-emerald-400" />
+                    <span className="font-semibold text-emerald-400">
+                      {record.matchScoreAfter}%
                     </span>
                   </span>
+                  <span>·</span>
                   <span>
-                    {acceptedCount} of {record.changeSummary.length} AI edits
-                    active
+                    {acceptedCount}/{record.changeSummary.length} edits active
                   </span>
+                  {record.baseResume?.title && (
+                    <>
+                      <span>·</span>
+                      <span>Base: {record.baseResume.title}</span>
+                    </>
+                  )}
                 </div>
               </div>
 
-              {/* 3 Core User Decisions */}
-              <div className="flex flex-wrap items-center gap-2.5">
+              {/* Three Concise, Tactile Decision Buttons */}
+              <div className="flex flex-wrap items-center gap-2 shrink-0">
                 <Button
+                  size="sm"
+                  variant={
+                    record.status === "accepted_new" ? "emerald" : "outline"
+                  }
                   onClick={() => handleDecision("accepted_new")}
                   disabled={isSavingDecision}
-                  variant={
-                    record.status === "accepted_new" ? "default" : "outline"
-                  }
                   className={
                     record.status === "accepted_new"
-                      ? "gap-2 bg-emerald-600 hover:bg-emerald-500 text-white"
-                      : "gap-2 border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/15"
+                      ? "gap-1.5"
+                      : "gap-1.5 border-emerald-500/35 text-emerald-300 hover:bg-emerald-500/15"
                   }
                 >
-                  <CheckCircle2 className="h-4 w-4" />
-                  Go With This Tailored Resume
+                  <CheckCircle2 className="h-3.5 w-3.5" />
+                  Use Tailored
                 </Button>
 
                 <Button
-                  onClick={() => handleDecision("kept_original")}
-                  disabled={isSavingDecision}
+                  size="sm"
                   variant={
                     record.status === "kept_original" ? "secondary" : "outline"
                   }
-                  className="gap-2"
+                  onClick={() => handleDecision("kept_original")}
+                  disabled={isSavingDecision}
+                  className="gap-1.5"
                 >
-                  <RotateCcw className="h-4 w-4" />
-                  Stick to Old Resume
+                  <RotateCcw className="h-3.5 w-3.5" />
+                  Keep Original
                 </Button>
 
                 <Button
                   type="button"
-                  variant="outline"
+                  size="sm"
+                  variant="default"
                   onClick={() => {
                     const el = document.getElementById("ai-refine-input");
                     el?.focus();
                     el?.scrollIntoView({ behavior: "smooth", block: "center" });
                   }}
-                  className="gap-2 border-primary/40 text-primary hover:bg-primary/10"
+                  className="gap-1.5"
                 >
-                  <Wand2 className="h-4 w-4" />
-                  Make Specific AI Changes
+                  <Wand2 className="h-3.5 w-3.5" />
+                  Refine
                 </Button>
               </div>
             </CardContent>
           </Card>
 
-          {/* View Mode Selector Tabs */}
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex flex-wrap items-center gap-1.5 rounded-lg bg-secondary/50 p-1 border border-border/60">
-              <button
-                onClick={() => setActiveTab("diff")}
-                className={`flex items-center gap-2 px-3.5 py-1.5 rounded-md text-xs sm:text-sm font-medium transition-all ${
-                  activeTab === "diff"
-                    ? "bg-primary text-primary-foreground shadow"
-                    : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                <Sparkles className="h-4 w-4" />
-                AI Changes & Diff ({record.changeSummary.length})
-              </button>
-              <button
-                onClick={() => setActiveTab("side_by_side")}
-                className={`flex items-center gap-2 px-3.5 py-1.5 rounded-md text-xs sm:text-sm font-medium transition-all ${
-                  activeTab === "side_by_side"
-                    ? "bg-primary text-primary-foreground shadow"
-                    : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                <SplitSquareVertical className="h-4 w-4" />
-                Side-by-Side Comparison
-              </button>
-              <button
-                onClick={() => setActiveTab("document")}
-                className={`flex items-center gap-2 px-3.5 py-1.5 rounded-md text-xs sm:text-sm font-medium transition-all ${
-                  activeTab === "document"
-                    ? "bg-primary text-primary-foreground shadow"
-                    : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                <FileText className="h-4 w-4" />
-                Full Resume Preview
-              </button>
-              <button
-                onClick={() => setActiveTab("jd")}
-                className={`flex items-center gap-2 px-3.5 py-1.5 rounded-md text-xs sm:text-sm font-medium transition-all ${
-                  activeTab === "jd"
-                    ? "bg-primary text-primary-foreground shadow"
-                    : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                <Target className="h-4 w-4" />
-                JD Keywords & Fit
-              </button>
-              <button
-                onClick={() => setActiveTab("cover_letter")}
-                className={`flex items-center gap-2 px-3.5 py-1.5 rounded-md text-xs sm:text-sm font-medium transition-all ${
-                  activeTab === "cover_letter"
-                    ? "bg-primary text-primary-foreground shadow"
-                    : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                <Mail className="h-4 w-4" />
-                Cover Letter
-              </button>
+          {/* Segmented View Tabs */}
+          <div className="flex flex-wrap items-center justify-between gap-2.5">
+            <div className="flex flex-wrap items-center gap-1 rounded-lg bg-secondary/50 p-1 border border-white/[0.06]">
+              {(
+                [
+                  {
+                    id: "diff",
+                    label: `Changes (${record.changeSummary.length})`,
+                    icon: Sparkles,
+                  },
+                  {
+                    id: "side_by_side",
+                    label: "Side-by-Side",
+                    icon: SplitSquareVertical,
+                  },
+                  { id: "document", label: "Preview", icon: FileText },
+                  { id: "jd", label: "Keywords", icon: Target },
+                  { id: "cover_letter", label: "Cover Letter", icon: Mail },
+                ] as const
+              ).map((tab) => {
+                const Icon = tab.icon;
+                const active = activeTab === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    onClick={() => setActiveTab(tab.id)}
+                    className={`tactile-pill flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium ${
+                      active
+                        ? "bg-primary text-primary-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.22),0_2px_6px_rgba(99,102,241,0.3)]"
+                        : "text-muted-foreground hover:text-foreground hover:bg-white/[0.04]"
+                    }`}
+                  >
+                    <Icon className="h-3.5 w-3.5" />
+                    {tab.label}
+                  </button>
+                );
+              })}
             </div>
 
             {activeTab === "document" && (
-              <div className="flex items-center gap-1 rounded-lg bg-secondary/40 p-1 border border-border/50 text-xs">
+              <div className="flex items-center gap-1 rounded-lg bg-secondary/50 p-1 border border-white/[0.06] text-xs">
                 <button
                   onClick={() => setPreviewVersion("tailored")}
-                  className={`px-3 py-1 rounded-md font-medium transition-colors ${
+                  className={`tactile-pill px-2.5 py-1 rounded-md font-medium ${
                     previewVersion === "tailored"
-                      ? "bg-emerald-600 text-white"
+                      ? "bg-emerald-600 text-white shadow-sm"
                       : "text-muted-foreground hover:text-foreground"
                   }`}
                 >
-                  Viewing: Tailored Resume
+                  Tailored
                 </button>
                 <button
                   onClick={() => setPreviewVersion("original")}
-                  className={`px-3 py-1 rounded-md font-medium transition-colors ${
+                  className={`tactile-pill px-2.5 py-1 rounded-md font-medium ${
                     previewVersion === "original"
-                      ? "bg-primary text-primary-foreground"
+                      ? "bg-primary text-primary-foreground shadow-sm"
                       : "text-muted-foreground hover:text-foreground"
                   }`}
                 >
-                  Viewing: Old (Original) Resume
+                  Original
                 </button>
               </div>
             )}
           </div>
         </div>
 
-        {/* ── Main Content Grid: Left (Preview / Diff) + Right (AI Refinement Chat & Keywords) ── */}
-        <div className="grid gap-6 lg:grid-cols-12 items-start">
-          {/* LEFT 8 COLUMNS: Active Preview / Diff View */}
-          <div className="lg:col-span-8 space-y-4 print:col-span-12">
-            {/* TAB 1: CHANGE-BY-CHANGE DIFF CARDS */}
+        {/* ── Main Content Grid ── */}
+        <div className="grid gap-5 lg:grid-cols-12 items-start">
+          {/* LEFT 8 COLS: Active Workspace */}
+          <div className="lg:col-span-8 space-y-3.5 min-w-0 print:col-span-12">
+            {/* TAB 1: DIFF CARDS */}
             {activeTab === "diff" && (
-              <div className="space-y-4 print:hidden">
+              <div className="space-y-3.5 print:hidden">
                 {record.changeSummary.length === 0 ? (
                   <Card>
-                    <CardContent className="p-8 text-center text-muted-foreground">
-                      No structured change cards recorded. Switch to
-                      Side-by-Side Comparison or Full Resume Preview, or use the
-                      AI Refinement box on the right to request edits.
+                    <CardContent className="p-8 text-center text-xs text-muted-foreground">
+                      No edits yet. Use the Refine panel on the right to make
+                      specific adjustments.
                     </CardContent>
                   </Card>
                 ) : (
@@ -681,38 +654,36 @@ export default function ResumePreviewPage() {
                     return (
                       <Card
                         key={chg.id || idx}
-                        className={`transition-all ${
-                          isAccepted
-                            ? "border-emerald-500/30"
-                            : "border-border/40 opacity-65"
+                        className={`overflow-hidden transition-opacity ${
+                          isAccepted ? "" : "opacity-55"
                         }`}
                       >
-                        <CardHeader className="py-3.5 px-5 border-b border-border/40 flex flex-row items-center justify-between gap-2">
-                          <div className="flex items-center gap-2.5">
+                        <div className="py-2.5 px-4 border-b border-white/[0.06] flex flex-wrap items-center justify-between gap-2 bg-white/[0.015]">
+                          <div className="flex items-center gap-2 min-w-0">
                             <Badge
                               variant={isAccepted ? "success" : "secondary"}
                               className="uppercase text-[10px]"
                             >
                               {chg.section}
                             </Badge>
-                            <span className="font-semibold text-sm">
+                            <span className="font-medium text-xs sm:text-sm truncate">
                               {chg.targetLabel}
                             </span>
                           </div>
 
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2 shrink-0">
                             <button
                               type="button"
                               onClick={() => {
                                 setSectionTarget(chg.targetLabel);
-                                const el =
-                                  document.getElementById("ai-refine-input");
-                                el?.focus();
+                                document
+                                  .getElementById("ai-refine-input")
+                                  ?.focus();
                               }}
-                              className="text-xs text-primary hover:underline flex items-center gap-1"
+                              className="tactile-pill text-[11px] text-indigo-300 hover:text-indigo-200 px-2 py-1 rounded-md hover:bg-primary/10 flex items-center gap-1"
                             >
                               <Wand2 className="h-3 w-3" />
-                              Ask AI to tweak this
+                              Tweak
                             </button>
 
                             <Button
@@ -720,62 +691,59 @@ export default function ResumePreviewPage() {
                               size="sm"
                               variant={isAccepted ? "outline" : "secondary"}
                               onClick={() => handleToggleChangeItem(chg.id)}
-                              className="h-7 px-2.5 text-xs gap-1"
+                              className="h-7 px-2.5 text-[11px] gap-1"
                             >
                               {isAccepted ? (
                                 <>
-                                  <Check className="h-3.5 w-3.5 text-emerald-400" />
-                                  Keep Edit
+                                  <Check className="h-3 w-3 text-emerald-400" />
+                                  Kept
                                 </>
                               ) : (
                                 <>
-                                  <X className="h-3.5 w-3.5 text-muted-foreground" />
-                                  Reverted to Old
+                                  <X className="h-3 w-3 text-muted-foreground" />
+                                  Reverted
                                 </>
                               )}
                             </Button>
                           </div>
-                        </CardHeader>
+                        </div>
 
-                        <CardContent className="p-5 space-y-3">
+                        <CardContent className="p-4 space-y-3">
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                             {/* BEFORE */}
-                            <div className="rounded-lg border border-red-500/20 bg-red-500/5 p-3.5 space-y-1.5">
-                              <div className="text-[11px] font-semibold uppercase tracking-wider text-red-400">
-                                Old Resume (Original)
+                            <div className="min-w-0 rounded-lg border border-rose-500/15 bg-rose-500/[0.04] p-3 space-y-1">
+                              <div className="text-[10px] font-medium uppercase tracking-wider text-rose-400/90">
+                                Original
                               </div>
-                              <p className="text-xs leading-relaxed text-muted-foreground">
+                              <p className="text-xs leading-relaxed text-muted-foreground break-words [overflow-wrap:anywhere]">
                                 {chg.before
                                   ? renderWordDiff(
                                       chg.before,
                                       chg.after,
                                       "before"
                                     )
-                                  : "(Not present in original)"}
+                                  : "—"}
                               </p>
                             </div>
 
                             {/* AFTER */}
-                            <div className="rounded-lg border border-emerald-500/25 bg-emerald-500/5 p-3.5 space-y-1.5">
-                              <div className="text-[11px] font-semibold uppercase tracking-wider text-emerald-400">
-                                Tailored for {record.company}
+                            <div className="min-w-0 rounded-lg border border-emerald-500/20 bg-emerald-500/[0.04] p-3 space-y-1">
+                              <div className="text-[10px] font-medium uppercase tracking-wider text-emerald-400/90">
+                                Tailored
                               </div>
-                              <p className="text-xs leading-relaxed text-foreground">
+                              <p className="text-xs leading-relaxed text-foreground break-words [overflow-wrap:anywhere]">
                                 {renderWordDiff(chg.before, chg.after, "after")}
                               </p>
                             </div>
                           </div>
 
                           {chg.reason && (
-                            <div className="flex items-start gap-2 text-xs text-muted-foreground bg-secondary/30 px-3 py-2 rounded-md">
-                              <Sparkles className="h-3.5 w-3.5 text-primary shrink-0 mt-0.5" />
-                              <span>
-                                <strong className="text-foreground">
-                                  Why AI changed this:
-                                </strong>{" "}
-                                {chg.reason}
-                              </span>
-                            </div>
+                            <p className="text-[11px] text-muted-foreground pl-1 break-words">
+                              <span className="text-foreground/80 font-medium">
+                                Rationale:
+                              </span>{" "}
+                              {chg.reason}
+                            </p>
                           )}
                         </CardContent>
                       </Card>
@@ -785,60 +753,63 @@ export default function ResumePreviewPage() {
               </div>
             )}
 
-            {/* TAB 2: SIDE-BY-SIDE FULL COMPARISON */}
+            {/* TAB 2: SIDE-BY-SIDE */}
             {activeTab === "side_by_side" && (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 print:hidden">
-                {/* Original Column */}
-                <Card className="border-border/60">
-                  <CardHeader className="py-3 px-4 border-b border-border/40 bg-secondary/20">
-                    <div className="flex items-center justify-between">
-                      <CardTitle className="text-sm font-semibold text-muted-foreground">
-                        Old Resume (Original Base)
-                      </CardTitle>
-                      <Badge variant="secondary">
-                        {record.matchScoreBefore}% Fit
-                      </Badge>
-                    </div>
-                  </CardHeader>
-                  <CardContent className="p-4 space-y-4 text-xs">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5 print:hidden">
+                {/* Original */}
+                <Card className="min-w-0 overflow-hidden">
+                  <div className="py-2.5 px-4 border-b border-white/[0.06] bg-secondary/30 flex items-center justify-between">
+                    <span className="text-xs font-semibold text-muted-foreground">
+                      Original Resume
+                    </span>
+                    <Badge variant="secondary">
+                      {record.matchScoreBefore}%
+                    </Badge>
+                  </div>
+                  <CardContent className="p-4 space-y-3.5 text-xs break-words [overflow-wrap:anywhere]">
                     <div>
-                      <h4 className="font-bold text-sm">
+                      <h4 className="font-semibold text-sm">
                         {record.originalContent.fullName}
                       </h4>
-                      <p className="text-muted-foreground">
+                      <p className="text-[11px] text-muted-foreground mt-0.5">
                         {record.originalContent.contactInfo}
                       </p>
                     </div>
                     <div>
-                      <h5 className="font-semibold uppercase tracking-wider text-[11px] text-muted-foreground mb-1">
+                      <h5 className="font-semibold uppercase tracking-wider text-[10px] text-muted-foreground mb-1">
                         Summary
                       </h5>
-                      <p className="leading-relaxed">
+                      <p className="leading-relaxed text-muted-foreground">
                         {record.originalContent.summary}
                       </p>
                     </div>
                     <div>
-                      <h5 className="font-semibold uppercase tracking-wider text-[11px] text-muted-foreground mb-1">
+                      <h5 className="font-semibold uppercase tracking-wider text-[10px] text-muted-foreground mb-1">
                         Skills
                       </h5>
                       {record.originalContent.skills.map((g, i) => (
-                        <p key={i} className="mb-1">
-                          <strong>{g.category}:</strong> {g.items.join(", ")}
+                        <p key={i} className="mb-1 text-muted-foreground">
+                          <strong className="text-foreground/85">
+                            {g.category}:
+                          </strong>{" "}
+                          {g.items.join(", ")}
                         </p>
                       ))}
                     </div>
                     <div>
-                      <h5 className="font-semibold uppercase tracking-wider text-[11px] text-muted-foreground mb-1">
+                      <h5 className="font-semibold uppercase tracking-wider text-[10px] text-muted-foreground mb-1.5">
                         Experience
                       </h5>
                       <div className="space-y-3">
                         {record.originalContent.experience.map((exp, i) => (
                           <div key={i} className="space-y-1">
-                            <div className="font-semibold">
-                              {exp.role} — {exp.company}{" "}
-                              <span className="text-muted-foreground font-normal">
-                                ({exp.dates})
-                              </span>
+                            <div className="font-medium text-foreground/90">
+                              {exp.role} · {exp.company}{" "}
+                              {exp.dates && (
+                                <span className="text-muted-foreground font-normal">
+                                  ({exp.dates})
+                                </span>
+                              )}
                             </div>
                             <ul className="list-disc pl-4 space-y-1 text-muted-foreground">
                               {exp.bullets.map((b, bi) => (
@@ -852,29 +823,27 @@ export default function ResumePreviewPage() {
                   </CardContent>
                 </Card>
 
-                {/* Tailored Column */}
-                <Card className="border-emerald-500/30">
-                  <CardHeader className="py-3 px-4 border-b border-emerald-500/20 bg-emerald-500/5">
-                    <div className="flex items-center justify-between">
-                      <CardTitle className="text-sm font-semibold text-emerald-300">
-                        Tailored Resume ({record.company})
-                      </CardTitle>
-                      <Badge variant="success">
-                        {record.matchScoreAfter}% Fit
-                      </Badge>
-                    </div>
-                  </CardHeader>
-                  <CardContent className="p-4 space-y-4 text-xs">
+                {/* Tailored */}
+                <Card className="min-w-0 overflow-hidden border-emerald-500/25">
+                  <div className="py-2.5 px-4 border-b border-emerald-500/15 bg-emerald-500/[0.05] flex items-center justify-between">
+                    <span className="text-xs font-semibold text-emerald-300">
+                      Tailored ({record.company})
+                    </span>
+                    <Badge variant="success">
+                      {record.matchScoreAfter}%
+                    </Badge>
+                  </div>
+                  <CardContent className="p-4 space-y-3.5 text-xs break-words [overflow-wrap:anywhere]">
                     <div>
-                      <h4 className="font-bold text-sm">
+                      <h4 className="font-semibold text-sm">
                         {effectiveTailoredResume.fullName}
                       </h4>
-                      <p className="text-muted-foreground">
+                      <p className="text-[11px] text-muted-foreground mt-0.5">
                         {effectiveTailoredResume.contactInfo}
                       </p>
                     </div>
                     <div>
-                      <h5 className="font-semibold uppercase tracking-wider text-[11px] text-emerald-400 mb-1">
+                      <h5 className="font-semibold uppercase tracking-wider text-[10px] text-emerald-400 mb-1">
                         Summary
                       </h5>
                       <p className="leading-relaxed">
@@ -886,7 +855,7 @@ export default function ResumePreviewPage() {
                       </p>
                     </div>
                     <div>
-                      <h5 className="font-semibold uppercase tracking-wider text-[11px] text-emerald-400 mb-1">
+                      <h5 className="font-semibold uppercase tracking-wider text-[10px] text-emerald-400 mb-1">
                         Skills
                       </h5>
                       {effectiveTailoredResume.skills.map((g, i) => (
@@ -896,7 +865,7 @@ export default function ResumePreviewPage() {
                       ))}
                     </div>
                     <div>
-                      <h5 className="font-semibold uppercase tracking-wider text-[11px] text-emerald-400 mb-1">
+                      <h5 className="font-semibold uppercase tracking-wider text-[10px] text-emerald-400 mb-1.5">
                         Experience
                       </h5>
                       <div className="space-y-3">
@@ -904,11 +873,13 @@ export default function ResumePreviewPage() {
                           const origExp = record.originalContent.experience[i];
                           return (
                             <div key={i} className="space-y-1">
-                              <div className="font-semibold">
-                                {exp.role} — {exp.company}{" "}
-                                <span className="text-muted-foreground font-normal">
-                                  ({exp.dates})
-                                </span>
+                              <div className="font-medium">
+                                {exp.role} · {exp.company}{" "}
+                                {exp.dates && (
+                                  <span className="text-muted-foreground font-normal">
+                                    ({exp.dates})
+                                  </span>
+                                )}
                               </div>
                               <ul className="list-disc pl-4 space-y-1">
                                 {exp.bullets.map((b, bi) => {
@@ -932,12 +903,12 @@ export default function ResumePreviewPage() {
               </div>
             )}
 
-            {/* TAB 3: CLEAN ATS DOCUMENT PREVIEW (Also used when printing PDF) */}
+            {/* TAB 3: CLEAN PRINT / PAPER RESUME PREVIEW */}
             {activeTab === "document" && activeDocumentResume && (
-              <div className="rounded-xl border border-border bg-white text-slate-900 p-8 sm:p-10 shadow-2xl print:border-0 print:shadow-none print:p-0 space-y-5">
-                {/* Resume Header */}
-                <div className="border-b border-slate-300 pb-4 text-center">
-                  <h1 className="text-2xl font-bold tracking-tight text-slate-900">
+              <div className="min-w-0 rounded-xl border border-white/[0.1] bg-white text-slate-900 p-7 sm:p-10 shadow-2xl print:border-0 print:shadow-none print:p-0 space-y-4 break-words [overflow-wrap:anywhere]">
+                {/* Header */}
+                <div className="border-b border-slate-200 pb-3.5 text-center">
+                  <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900">
                     {activeDocumentResume.fullName}
                   </h1>
                   {activeDocumentResume.contactInfo && (
@@ -947,11 +918,11 @@ export default function ResumePreviewPage() {
                   )}
                 </div>
 
-                {/* Professional Summary */}
+                {/* Summary */}
                 {activeDocumentResume.summary && (
-                  <section className="space-y-1.5">
-                    <div className="flex items-center justify-between">
-                      <h2 className="text-xs font-bold uppercase tracking-wider text-slate-700 border-b border-slate-200 pb-1 flex-1">
+                  <section className="space-y-1.5 group">
+                    <div className="flex items-center justify-between border-b border-slate-200 pb-0.5">
+                      <h2 className="text-[11px] font-bold uppercase tracking-wider text-slate-700">
                         Professional Summary
                       </h2>
                       <button
@@ -960,10 +931,9 @@ export default function ResumePreviewPage() {
                           setSectionTarget("Professional Summary");
                           document.getElementById("ai-refine-input")?.focus();
                         }}
-                        className="print:hidden ml-3 text-[11px] text-violet-600 hover:underline flex items-center gap-1"
+                        className="print:hidden text-[11px] text-indigo-600 opacity-0 group-hover:opacity-100 transition-opacity hover:underline"
                       >
-                        <Wand2 className="h-3 w-3" />
-                        Edit with AI
+                        Refine
                       </button>
                     </div>
                     <p className="text-xs leading-relaxed text-slate-800">
@@ -972,11 +942,11 @@ export default function ResumePreviewPage() {
                   </section>
                 )}
 
-                {/* Technical Skills */}
+                {/* Skills */}
                 {activeDocumentResume.skills.length > 0 && (
-                  <section className="space-y-1.5">
-                    <div className="flex items-center justify-between">
-                      <h2 className="text-xs font-bold uppercase tracking-wider text-slate-700 border-b border-slate-200 pb-1 flex-1">
+                  <section className="space-y-1.5 group">
+                    <div className="flex items-center justify-between border-b border-slate-200 pb-0.5">
+                      <h2 className="text-[11px] font-bold uppercase tracking-wider text-slate-700">
                         Technical Skills
                       </h2>
                       <button
@@ -985,16 +955,17 @@ export default function ResumePreviewPage() {
                           setSectionTarget("Technical Skills");
                           document.getElementById("ai-refine-input")?.focus();
                         }}
-                        className="print:hidden ml-3 text-[11px] text-violet-600 hover:underline flex items-center gap-1"
+                        className="print:hidden text-[11px] text-indigo-600 opacity-0 group-hover:opacity-100 transition-opacity hover:underline"
                       >
-                        <Wand2 className="h-3 w-3" />
-                        Edit with AI
+                        Refine
                       </button>
                     </div>
                     <div className="space-y-1 text-xs text-slate-800">
                       {activeDocumentResume.skills.map((group, idx) => (
                         <div key={idx}>
-                          <span className="font-semibold">{group.category}: </span>
+                          <span className="font-semibold text-slate-900">
+                            {group.category}:{" "}
+                          </span>
                           <span>{group.items.join(", ")}</span>
                         </div>
                       ))}
@@ -1002,11 +973,11 @@ export default function ResumePreviewPage() {
                   </section>
                 )}
 
-                {/* Professional Experience */}
+                {/* Experience */}
                 {activeDocumentResume.experience.length > 0 && (
-                  <section className="space-y-3">
-                    <div className="flex items-center justify-between">
-                      <h2 className="text-xs font-bold uppercase tracking-wider text-slate-700 border-b border-slate-200 pb-1 flex-1">
+                  <section className="space-y-2.5 group">
+                    <div className="flex items-center justify-between border-b border-slate-200 pb-0.5">
+                      <h2 className="text-[11px] font-bold uppercase tracking-wider text-slate-700">
                         Professional Experience
                       </h2>
                       <button
@@ -1015,32 +986,31 @@ export default function ResumePreviewPage() {
                           setSectionTarget("Professional Experience");
                           document.getElementById("ai-refine-input")?.focus();
                         }}
-                        className="print:hidden ml-3 text-[11px] text-violet-600 hover:underline flex items-center gap-1"
+                        className="print:hidden text-[11px] text-indigo-600 opacity-0 group-hover:opacity-100 transition-opacity hover:underline"
                       >
-                        <Wand2 className="h-3 w-3" />
-                        Edit with AI
+                        Refine
                       </button>
                     </div>
-                    <div className="space-y-3.5">
+                    <div className="space-y-3">
                       {activeDocumentResume.experience.map((exp, idx) => (
                         <div key={exp.id || idx} className="space-y-1">
                           <div className="flex flex-wrap items-baseline justify-between gap-2">
                             <div>
-                              <span className="font-bold text-sm text-slate-900">
+                              <span className="font-semibold text-xs sm:text-sm text-slate-900">
                                 {exp.role}
                               </span>
-                              <span className="text-xs font-semibold text-slate-700">
+                              <span className="text-xs font-medium text-slate-700">
                                 {" "}
-                                — {exp.company}
+                                · {exp.company}
                               </span>
                             </div>
-                            <span className="text-xs text-slate-600">
+                            <span className="text-[11px] text-slate-500">
                               {[exp.location, exp.dates]
                                 .filter(Boolean)
-                                .join(" | ")}
+                                .join(" · ")}
                             </span>
                           </div>
-                          <ul className="list-disc pl-4 space-y-1 text-xs text-slate-800 leading-relaxed">
+                          <ul className="list-disc pl-4 space-y-0.5 text-xs text-slate-800 leading-relaxed">
                             {exp.bullets.map((b, bi) => (
                               <li key={bi}>{b}</li>
                             ))}
@@ -1053,24 +1023,24 @@ export default function ResumePreviewPage() {
 
                 {/* Projects */}
                 {activeDocumentResume.projects.length > 0 && (
-                  <section className="space-y-2.5">
-                    <h2 className="text-xs font-bold uppercase tracking-wider text-slate-700 border-b border-slate-200 pb-1">
+                  <section className="space-y-2">
+                    <h2 className="text-[11px] font-bold uppercase tracking-wider text-slate-700 border-b border-slate-200 pb-0.5">
                       Projects
                     </h2>
                     <div className="space-y-2.5">
                       {activeDocumentResume.projects.map((proj, idx) => (
-                        <div key={proj.id || idx} className="space-y-1">
-                          <div className="flex items-baseline justify-between">
-                            <span className="font-bold text-xs text-slate-900">
+                        <div key={proj.id || idx} className="space-y-0.5">
+                          <div className="flex flex-wrap items-baseline justify-between gap-2">
+                            <span className="font-semibold text-xs text-slate-900">
                               {proj.name}
                             </span>
                             {proj.techStack && (
-                              <span className="text-[11px] italic text-slate-600">
+                              <span className="text-[11px] text-slate-500">
                                 {proj.techStack}
                               </span>
                             )}
                           </div>
-                          <ul className="list-disc pl-4 space-y-1 text-xs text-slate-800">
+                          <ul className="list-disc pl-4 space-y-0.5 text-xs text-slate-800 leading-relaxed">
                             {proj.bullets.map((b, bi) => (
                               <li key={bi}>{b}</li>
                             ))}
@@ -1084,20 +1054,22 @@ export default function ResumePreviewPage() {
                 {/* Education */}
                 {activeDocumentResume.education.length > 0 && (
                   <section className="space-y-1.5">
-                    <h2 className="text-xs font-bold uppercase tracking-wider text-slate-700 border-b border-slate-200 pb-1">
+                    <h2 className="text-[11px] font-bold uppercase tracking-wider text-slate-700 border-b border-slate-200 pb-0.5">
                       Education
                     </h2>
-                    <div className="space-y-1.5 text-xs text-slate-800">
+                    <div className="space-y-1 text-xs text-slate-800">
                       {activeDocumentResume.education.map((edu, idx) => (
                         <div
                           key={edu.id || idx}
                           className="flex flex-wrap justify-between gap-2"
                         >
                           <div>
-                            <span className="font-semibold">
+                            <span className="font-semibold text-slate-900">
                               {edu.degree || edu.institution}
                             </span>
-                            {edu.degree && <span> — {edu.institution}</span>}
+                            {edu.degree && edu.institution && (
+                              <span> · {edu.institution}</span>
+                            )}
                             {edu.details && (
                               <span className="text-slate-600">
                                 {" "}
@@ -1105,7 +1077,9 @@ export default function ResumePreviewPage() {
                               </span>
                             )}
                           </div>
-                          <span className="text-slate-600">{edu.dates}</span>
+                          <span className="text-[11px] text-slate-500">
+                            {edu.dates}
+                          </span>
                         </div>
                       ))}
                     </div>
@@ -1114,23 +1088,21 @@ export default function ResumePreviewPage() {
               </div>
             )}
 
-            {/* TAB 4: JOB DESCRIPTION & KEYWORD ANALYSIS */}
+            {/* TAB 4: KEYWORDS & JD */}
             {activeTab === "jd" && (
               <Card className="print:hidden">
                 <CardHeader>
-                  <CardTitle className="text-lg">
-                    Target Job Description & ATS Keywords
-                  </CardTitle>
+                  <CardTitle className="text-sm">Keyword Coverage</CardTitle>
                   <CardDescription>
-                    Keywords extracted from {record.company}&apos;s job
-                    description for {record.role}.
+                    Click any unmatched skill to incorporate it into your
+                    resume.
                   </CardDescription>
                 </CardHeader>
-                <CardContent className="space-y-6">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-4 space-y-2">
-                      <h4 className="text-xs font-semibold uppercase tracking-wider text-emerald-400">
-                        Matched Keywords ({record.keywordsMatched.length})
+                <CardContent className="space-y-5">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                    <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/[0.04] p-3.5 space-y-2">
+                      <h4 className="text-[11px] font-semibold uppercase tracking-wider text-emerald-400">
+                        Matched ({record.keywordsMatched.length})
                       </h4>
                       <div className="flex flex-wrap gap-1.5">
                         {record.keywordsMatched.map((kw) => (
@@ -1141,14 +1113,13 @@ export default function ResumePreviewPage() {
                       </div>
                     </div>
 
-                    <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-4 space-y-2">
-                      <h4 className="text-xs font-semibold uppercase tracking-wider text-amber-400">
-                        Unmatched / Optional Keywords (
-                        {record.keywordsMissing.length})
+                    <div className="rounded-lg border border-amber-500/20 bg-amber-500/[0.04] p-3.5 space-y-2">
+                      <h4 className="text-[11px] font-semibold uppercase tracking-wider text-amber-400">
+                        Optional / Unmatched ({record.keywordsMissing.length})
                       </h4>
                       {record.keywordsMissing.length === 0 ? (
                         <p className="text-xs text-muted-foreground">
-                          All primary JD keywords are covered!
+                          All core JD skills covered.
                         </p>
                       ) : (
                         <div className="flex flex-wrap gap-1.5">
@@ -1157,15 +1128,12 @@ export default function ResumePreviewPage() {
                               key={kw}
                               type="button"
                               onClick={() => {
-                                setAiInstruction(
-                                  `Naturally incorporate my experience with ${kw} into my skills and relevant experience bullet points.`
-                                );
+                                setAiInstruction(`Add ${kw}`);
                                 document
                                   .getElementById("ai-refine-input")
                                   ?.focus();
                               }}
-                              className="px-2.5 py-0.5 rounded-full text-xs border border-amber-500/40 text-amber-300 hover:bg-amber-500/20 transition-colors"
-                              title="Click to ask AI to add this keyword"
+                              className="tactile-pill px-2 py-0.5 rounded-md text-[11px] border border-amber-500/30 text-amber-300 hover:bg-amber-500/15"
                             >
                               + {kw}
                             </button>
@@ -1175,11 +1143,11 @@ export default function ResumePreviewPage() {
                     </div>
                   </div>
 
-                  <div className="space-y-2">
-                    <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                      Original Job Description
+                  <div className="space-y-1.5">
+                    <h4 className="text-[11px] font-medium text-muted-foreground">
+                      Job Description
                     </h4>
-                    <pre className="whitespace-pre-wrap rounded-lg border border-border/60 bg-secondary/20 p-4 text-xs text-muted-foreground font-sans leading-relaxed max-h-[420px] overflow-y-auto">
+                    <pre className="whitespace-pre-wrap break-words rounded-lg border border-white/[0.07] bg-secondary/25 p-3.5 text-xs text-muted-foreground font-sans leading-relaxed max-h-[380px] overflow-y-auto">
                       {record.jobDescription}
                     </pre>
                   </div>
@@ -1187,19 +1155,15 @@ export default function ResumePreviewPage() {
               </Card>
             )}
 
-            {/* TAB 5: DYNAMIC COVER LETTER GENERATOR */}
+            {/* TAB 5: COVER LETTER */}
             {activeTab === "cover_letter" && (
               <Card className="print:hidden">
                 <CardHeader>
-                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5">
                     <div>
-                      <CardTitle className="text-lg flex items-center gap-2">
-                        <Mail className="h-4 w-4 text-primary" />
-                        Tailored Cover Letter for {record.company}
-                      </CardTitle>
+                      <CardTitle className="text-sm">Cover Letter</CardTitle>
                       <CardDescription>
-                        Dynamically synthesized from your tailored resume and{" "}
-                        {record.company}&apos;s job description.
+                        Tailored to {record.company} from your resume.
                       </CardDescription>
                     </div>
 
@@ -1209,11 +1173,11 @@ export default function ResumePreviewPage() {
                         onChange={(e) =>
                           setCoverLetterTone(e.target.value as CoverLetterTone)
                         }
-                        className="h-8 px-2.5 rounded-md border border-input bg-background text-xs"
+                        className="h-8 px-2.5 rounded-lg border border-white/[0.1] bg-secondary/40 text-xs"
                       >
-                        <option value="professional">Professional Tone</option>
-                        <option value="enthusiastic">Enthusiastic Tone</option>
-                        <option value="technical">Deep Technical Tone</option>
+                        <option value="professional">Professional</option>
+                        <option value="enthusiastic">Enthusiastic</option>
+                        <option value="technical">Technical</option>
                       </select>
 
                       <Button
@@ -1221,8 +1185,10 @@ export default function ResumePreviewPage() {
                         variant="outline"
                         size="sm"
                         onClick={async () => {
-                          await navigator.clipboard.writeText(customCoverLetter);
-                          toast.success("Cover letter copied to clipboard!");
+                          await navigator.clipboard.writeText(
+                            customCoverLetter
+                          );
+                          toast.success("Copied");
                         }}
                         className="gap-1.5"
                       >
@@ -1250,150 +1216,117 @@ export default function ResumePreviewPage() {
                         className="gap-1.5"
                       >
                         <Download className="h-3.5 w-3.5" />
-                        Download .TXT
+                        TXT
                       </Button>
                     </div>
                   </div>
                 </CardHeader>
                 <CardContent>
                   <textarea
-                    rows={18}
+                    rows={16}
                     value={customCoverLetter}
                     onChange={(e) => setCustomCoverLetter(e.target.value)}
-                    className="w-full p-4 rounded-lg border border-input bg-background/80 text-xs sm:text-sm leading-relaxed font-sans resize-y focus:outline-none focus:ring-2 focus:ring-primary"
+                    className="w-full p-3.5 rounded-lg border border-white/[0.08] bg-secondary/30 text-xs sm:text-sm leading-relaxed font-sans resize-y focus:outline-none focus:ring-2 focus:ring-primary/50"
                   />
                 </CardContent>
               </Card>
             )}
           </div>
 
-          {/* RIGHT 4 COLUMNS: Interactive AI Refinement Box & Revision History */}
-          <div className="lg:col-span-4 space-y-6 print:hidden">
-            {/* Make Specific Changes via AI Card */}
-            <Card className="border-primary/40 shadow-lg">
+          {/* RIGHT 4 COLS: Concise Refine & History */}
+          <div className="lg:col-span-4 space-y-4 min-w-0 print:hidden">
+            <Card>
               <CardHeader className="pb-3">
-                <CardTitle className="text-base flex items-center gap-2">
+                <CardTitle className="text-sm flex items-center gap-2">
                   <Wand2 className="h-4 w-4 text-primary" />
-                  Make Specific Changes with AI
+                  Refine Resume
                 </CardTitle>
-                <CardDescription className="text-xs">
-                  Tell the AI exactly what you want changed, toned down, added,
-                  or restored.
+                <CardDescription>
+                  Request targeted edits to any section.
                 </CardDescription>
               </CardHeader>
-              <CardContent className="space-y-4">
-                <form onSubmit={handleAiRefine} className="space-y-3">
-                  <div className="space-y-1">
-                    <label className="text-[11px] font-medium text-muted-foreground">
-                      Target Section
-                    </label>
-                    <select
-                      value={sectionTarget}
-                      onChange={(e) => setSectionTarget(e.target.value)}
-                      className="w-full h-8 px-2.5 rounded-md border border-input bg-background text-xs"
-                    >
-                      <option value="">Entire Resume (Auto-detect)</option>
-                      <option value="Professional Summary">
-                        Professional Summary Only
-                      </option>
-                      <option value="Technical Skills">
-                        Technical Skills Only
-                      </option>
-                      <option value="Professional Experience">
-                        Work Experience Bullets
-                      </option>
-                      <option value="Projects">Projects Section</option>
-                    </select>
-                  </div>
+              <CardContent className="space-y-3.5">
+                <form onSubmit={handleAiRefine} className="space-y-2.5">
+                  <select
+                    value={sectionTarget}
+                    onChange={(e) => setSectionTarget(e.target.value)}
+                    className="w-full h-8 px-2.5 rounded-lg border border-white/[0.08] bg-secondary/40 text-xs"
+                  >
+                    <option value="">All Sections</option>
+                    <option value="Professional Summary">Summary</option>
+                    <option value="Technical Skills">Skills</option>
+                    <option value="Professional Experience">Experience</option>
+                    <option value="Projects">Projects</option>
+                  </select>
 
-                  <div className="space-y-1">
-                    <label className="text-[11px] font-medium text-muted-foreground">
-                      Your Instruction for AI
-                    </label>
-                    <textarea
-                      id="ai-refine-input"
-                      rows={4}
-                      value={aiInstruction}
-                      onChange={(e) => setAiInstruction(e.target.value)}
-                      placeholder="e.g. 'Rewrite my summary to highlight 4+ years of TypeScript & Next.js', or 'Make the 2nd bullet at my latest role shorter'..."
-                      className="w-full p-2.5 rounded-md border border-input bg-background text-xs resize-y focus:outline-none focus:ring-2 focus:ring-primary"
-                    />
-                  </div>
+                  <textarea
+                    id="ai-refine-input"
+                    rows={3}
+                    value={aiInstruction}
+                    onChange={(e) => setAiInstruction(e.target.value)}
+                    placeholder="e.g. Add Docker & AWS, or replace Built with Architected..."
+                    className="w-full p-2.5 rounded-lg border border-white/[0.08] bg-secondary/40 text-xs resize-y focus:outline-none focus:ring-2 focus:ring-primary/50"
+                  />
 
                   <Button
                     type="submit"
                     size="sm"
                     disabled={isRefining}
-                    className="w-full gap-2"
+                    className="w-full"
                   >
-                    <Send className="h-3.5 w-3.5" />
-                    {isRefining
-                      ? "AI is Updating Resume..."
-                      : "Apply Specific AI Changes"}
+                    {isRefining ? "Applying..." : "Apply Edit"}
                   </Button>
                 </form>
 
-                {/* Quick Prompt Suggestions */}
-                <div className="space-y-1.5 pt-2 border-t border-border/50">
-                  <span className="text-[11px] font-medium text-muted-foreground">
-                    Quick AI Refinement Prompts:
-                  </span>
-                  <div className="flex flex-col gap-1.5">
-                    {QUICK_PROMPTS.map((q) => (
-                      <button
-                        key={q}
-                        type="button"
-                        onClick={() => setAiInstruction(q)}
-                        className="text-left text-[11px] px-2.5 py-1.5 rounded-md bg-secondary/40 hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
-                      >
-                        &ldquo;{q}&rdquo;
-                      </button>
-                    ))}
-                  </div>
+                {/* Concise Quick Chips */}
+                <div className="pt-2 border-t border-white/[0.06] flex flex-wrap gap-1.5">
+                  {QUICK_CHIPS.map((chip) => (
+                    <button
+                      key={chip.label}
+                      type="button"
+                      onClick={() => setAiInstruction(chip.prompt)}
+                      className="tactile-pill px-2.5 py-1 rounded-md text-[11px] bg-secondary/50 border border-white/[0.06] text-muted-foreground hover:text-foreground hover:bg-secondary"
+                    >
+                      {chip.label}
+                    </button>
+                  ))}
                 </div>
               </CardContent>
             </Card>
 
-            {/* Revision History Card */}
+            {/* Compact History */}
             <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-base flex items-center gap-2">
-                  <History className="h-4 w-4 text-primary" />
-                  AI Revision History ({record.revisionHistory.length})
+              <CardHeader className="pb-2.5">
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <History className="h-4 w-4 text-muted-foreground" />
+                  History ({record.revisionHistory.length})
                 </CardTitle>
-                <CardDescription className="text-xs">
-                  Every AI edit is saved as a snapshot so you can restore any
-                  version.
-                </CardDescription>
               </CardHeader>
-              <CardContent className="space-y-2.5 max-h-[320px] overflow-y-auto">
+              <CardContent className="space-y-2 max-h-[260px] overflow-y-auto">
                 {record.revisionHistory
                   .slice()
                   .reverse()
                   .map((rev, idx) => (
                     <div
                       key={rev.id}
-                      className="p-3 rounded-lg border border-border/60 bg-secondary/20 space-y-1.5 text-xs"
+                      className="p-2.5 rounded-lg border border-white/[0.06] bg-secondary/25 space-y-1 text-xs"
                     >
                       <div className="flex items-center justify-between gap-2">
-                        <span className="font-semibold text-foreground truncate">
-                          {idx === 0 ? "Latest Version" : `Revision`}
+                        <span className="font-medium text-foreground/90 text-[11px]">
+                          {idx === 0 ? "Current" : "Saved snapshot"}
                         </span>
                         {idx > 0 && (
                           <button
                             type="button"
                             onClick={() => handleRestoreRevision(rev.id)}
-                            className="text-[11px] text-primary hover:underline shrink-0"
+                            className="tactile-pill text-[11px] text-indigo-300 hover:text-indigo-200 font-medium"
                           >
                             Restore
                           </button>
                         )}
                       </div>
-                      <p className="text-muted-foreground italic line-clamp-2">
-                        &ldquo;{rev.prompt}&rdquo;
-                      </p>
-                      <p className="text-[11px] text-emerald-400/90">
-                        {rev.summaryOfChanges}
+                      <p className="text-[11px] text-muted-foreground line-clamp-2 break-words">
+                        {rev.prompt}
                       </p>
                     </div>
                   ))}
@@ -1405,4 +1338,3 @@ export default function ResumePreviewPage() {
     </div>
   );
 }
-

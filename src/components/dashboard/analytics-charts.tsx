@@ -38,46 +38,51 @@ export function AnalyticsCharts({ applications }: AnalyticsChartsProps) {
 
     return [
       {
-        label: "Total Applied",
+        label: "Applied",
         count: total,
         percent: total > 0 ? 100 : 0,
-        barColor: "bg-blue-500",
-        textColor: "text-blue-400",
+        barColor: "bg-indigo-500",
+        textColor: "text-indigo-300",
       },
       {
-        label: "Replies / Activity",
+        label: "Replied",
         count: replies,
         percent: pct(replies),
         barColor: "bg-emerald-500",
-        textColor: "text-emerald-400",
+        textColor: "text-emerald-300",
       },
       {
-        label: "Interview Stage",
+        label: "Interview",
         count: interviews,
         percent: pct(interviews),
-        barColor: "bg-violet-500",
-        textColor: "text-violet-400",
+        barColor: "bg-sky-500",
+        textColor: "text-sky-300",
       },
       {
-        label: "Offers Received",
+        label: "Offer",
         count: offers,
         percent: pct(offers),
         barColor: "bg-amber-500",
-        textColor: "text-amber-400",
+        textColor: "text-amber-300",
       },
       {
-        label: "Rejected / Closed",
+        label: "Closed",
         count: rejected,
         percent: pct(rejected),
         barColor: "bg-rose-500/80",
-        textColor: "text-rose-400",
+        textColor: "text-rose-300",
       },
     ];
   }, [applications]);
 
   const weeklyBuckets = useMemo(() => {
     const now = new Date();
-    const buckets: Array<{ label: string; start: Date; end: Date; count: number }> = [];
+    const buckets: Array<{
+      label: string;
+      start: Date;
+      end: Date;
+      count: number;
+    }> = [];
 
     for (let i = 7; i >= 0; i--) {
       const end = new Date(now);
@@ -114,38 +119,34 @@ export function AnalyticsCharts({ applications }: AnalyticsChartsProps) {
   const totalRecent = weeklyBuckets.reduce((acc, b) => acc + b.count, 0);
 
   return (
-    <div className="grid gap-4 lg:grid-cols-12">
-      {/* Conversion Funnel Card */}
-      <Card className="lg:col-span-6">
+    <div className="grid gap-3.5 lg:grid-cols-12">
+      {/* Funnel */}
+      <Card className="lg:col-span-6 tactile-card">
         <CardHeader className="pb-3">
-          <div className="flex items-center justify-between">
-            <div>
-              <CardTitle className="text-base flex items-center gap-2">
-                <Filter className="h-4 w-4 text-primary" />
-                Application Conversion Funnel
-              </CardTitle>
-              <CardDescription className="text-xs">
-                Stage-by-stage breakdown across {applications.length} tracked
-                application{applications.length !== 1 ? "s" : ""}
-              </CardDescription>
-            </div>
-          </div>
+          <CardTitle className="text-sm flex items-center gap-2">
+            <Filter className="h-3.5 w-3.5 text-primary" />
+            Pipeline
+          </CardTitle>
+          <CardDescription>
+            Conversion across {applications.length} role
+            {applications.length !== 1 ? "s" : ""}
+          </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-3">
+        <CardContent className="space-y-2.5">
           {funnelStages.map((stage) => (
             <div key={stage.label} className="space-y-1">
               <div className="flex items-center justify-between text-xs">
-                <span className="font-medium text-muted-foreground">
-                  {stage.label}
-                </span>
-                <span className={`font-semibold ${stage.textColor}`}>
-                  {stage.count} ({stage.percent}%)
+                <span className="text-muted-foreground">{stage.label}</span>
+                <span className={`font-medium ${stage.textColor}`}>
+                  {stage.count} · {stage.percent}%
                 </span>
               </div>
-              <div className="h-2.5 w-full rounded-full bg-secondary/60 overflow-hidden">
+              <div className="h-1.5 w-full rounded-full bg-secondary/70 overflow-hidden">
                 <div
                   className={`h-full rounded-full ${stage.barColor} transition-all duration-500`}
-                  style={{ width: `${Math.max(stage.count > 0 ? 4 : 0, stage.percent)}%` }}
+                  style={{
+                    width: `${Math.max(stage.count > 0 ? 4 : 0, stage.percent)}%`,
+                  }}
                 />
               </div>
             </div>
@@ -153,41 +154,35 @@ export function AnalyticsCharts({ applications }: AnalyticsChartsProps) {
         </CardContent>
       </Card>
 
-      {/* 8-Week Velocity Chart Card */}
-      <Card className="lg:col-span-6">
+      {/* Weekly Velocity */}
+      <Card className="lg:col-span-6 tactile-card">
         <CardHeader className="pb-3">
-          <div className="flex items-center justify-between">
-            <div>
-              <CardTitle className="text-base flex items-center gap-2">
-                <BarChart3 className="h-4 w-4 text-primary" />
-                Weekly Application Velocity (Last 8 Weeks)
-              </CardTitle>
-              <CardDescription className="text-xs">
-                {totalRecent} application{totalRecent !== 1 ? "s" : ""} logged
-                in the past 8 weeks (~
-                {(totalRecent / 8).toFixed(1)}/week)
-              </CardDescription>
-            </div>
-          </div>
+          <CardTitle className="text-sm flex items-center gap-2">
+            <BarChart3 className="h-3.5 w-3.5 text-primary" />
+            8-Week Activity
+          </CardTitle>
+          <CardDescription>
+            {totalRecent} applied · ~{(totalRecent / 8).toFixed(1)}/wk
+          </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="h-40 flex items-end justify-between gap-2 pt-4">
+          <div className="h-32 flex items-end justify-between gap-2 pt-2">
             {weeklyBuckets.map((bucket) => {
               const heightPct = Math.round((bucket.count / maxWeekly) * 100);
               return (
                 <div
                   key={bucket.label}
-                  className="flex-1 flex flex-col items-center gap-1.5 h-full justify-end group"
+                  className="flex-1 flex flex-col items-center gap-1 h-full justify-end group"
                 >
-                  <span className="text-[11px] font-semibold text-muted-foreground group-hover:text-foreground transition-colors">
+                  <span className="text-[10px] font-medium text-muted-foreground group-hover:text-foreground transition-colors">
                     {bucket.count}
                   </span>
-                  <div className="w-full bg-secondary/40 rounded-t-md h-24 flex items-end overflow-hidden">
+                  <div className="w-full bg-secondary/45 rounded-t h-20 flex items-end overflow-hidden">
                     <div
-                      className="w-full bg-gradient-to-t from-primary/80 to-violet-400 rounded-t-md transition-all duration-500 group-hover:brightness-110"
+                      className="w-full bg-primary/85 rounded-t transition-all duration-300 group-hover:bg-primary"
                       style={{
-                        height: `${bucket.count > 0 ? Math.max(12, heightPct) : 3}%`,
-                        opacity: bucket.count > 0 ? 1 : 0.25,
+                        height: `${bucket.count > 0 ? Math.max(12, heightPct) : 4}%`,
+                        opacity: bucket.count > 0 ? 1 : 0.2,
                       }}
                     />
                   </div>
@@ -203,4 +198,3 @@ export function AnalyticsCharts({ applications }: AnalyticsChartsProps) {
     </div>
   );
 }
-

@@ -6,26 +6,29 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/utils";
 
 const buttonVariants = cva(
-  "inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-all duration-200 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50",
+  "tactile-btn inline-flex items-center justify-center whitespace-nowrap rounded-lg text-sm font-medium select-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 disabled:pointer-events-none disabled:opacity-45",
   {
     variants: {
       variant: {
         default:
-          "bg-primary text-primary-foreground shadow hover:bg-primary/90 hover:shadow-lg hover:shadow-primary/25",
+          "bg-primary text-primary-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.22),0_2px_6px_rgba(0,0,0,0.4)] hover:bg-primary/95 hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.28),0_6px_18px_-3px_rgba(99,102,241,0.45)]",
+        emerald:
+          "bg-emerald-600 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.22),0_2px_6px_rgba(0,0,0,0.4)] hover:bg-emerald-500 hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.28),0_6px_18px_-3px_rgba(16,185,129,0.4)]",
         destructive:
-          "bg-destructive text-destructive-foreground shadow-sm hover:bg-destructive/90",
+          "bg-destructive text-destructive-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.16),0_1px_3px_rgba(0,0,0,0.35)] hover:bg-destructive/90",
         outline:
-          "border border-input bg-background shadow-sm hover:bg-accent hover:text-accent-foreground",
+          "border border-white/[0.1] bg-secondary/45 text-foreground/90 shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_1px_2px_rgba(0,0,0,0.3)] hover:bg-secondary/80 hover:border-white/[0.18] hover:text-foreground hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.09),0_5px_14px_-3px_rgba(0,0,0,0.45)]",
         secondary:
-          "bg-secondary text-secondary-foreground shadow-sm hover:bg-secondary/80",
-        ghost: "hover:bg-accent hover:text-accent-foreground",
+          "bg-secondary text-secondary-foreground border border-white/[0.06] shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] hover:bg-secondary/85 hover:border-white/[0.12]",
+        ghost:
+          "text-muted-foreground hover:bg-white/[0.06] hover:text-foreground",
         link: "text-primary underline-offset-4 hover:underline",
       },
       size: {
-        default: "h-9 px-4 py-2",
-        sm: "h-8 rounded-md px-3 text-xs",
-        lg: "h-10 rounded-md px-8",
-        icon: "h-9 w-9",
+        default: "h-9 px-4 py-2 text-xs sm:text-sm",
+        sm: "h-8 rounded-lg px-3 text-xs",
+        lg: "h-10 rounded-lg px-6 text-sm",
+        icon: "h-8 w-8 rounded-lg",
       },
     },
     defaultVariants: {

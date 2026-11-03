@@ -123,13 +123,13 @@ export default function DashboardPage() {
     <div className="min-h-screen bg-background mesh-gradient">
       <DashboardHeader />
 
-      <main className="container py-8 space-y-8">
+      <main className="container py-7 space-y-6">
         {/* ── Top Bar: Title + Controls ─────────────── */}
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div className="flex flex-col gap-3.5 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <h2 className="text-2xl font-bold tracking-tight">Dashboard</h2>
-            <p className="text-muted-foreground">
-              Track and manage your job applications
+            <h2 className="text-xl font-semibold tracking-tight">Overview</h2>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Synced applications, conversion pipeline, and tailored resumes.
             </p>
           </div>
 

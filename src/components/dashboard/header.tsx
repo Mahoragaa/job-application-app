@@ -29,31 +29,33 @@ export function DashboardHeader() {
     },
     {
       href: "/resume",
-      label: "AI Resume Tailor",
+      label: "Resume Studio",
       icon: Sparkles,
       active: pathname?.startsWith("/resume"),
     },
   ];
 
   return (
-    <header className="sticky top-0 z-50 w-full border-b border-border/40 glass print:hidden">
-      <div className="container flex h-16 items-center justify-between gap-4">
-        <div className="flex items-center gap-6">
-          {/* Logo */}
-          <Link href="/dashboard" className="flex items-center gap-3">
-            <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-primary/10 border border-primary/20">
-              <Briefcase className="w-5 h-5 text-primary" />
+    <header className="sticky top-0 z-50 w-full glass print:hidden">
+      <div className="container flex h-14 items-center justify-between gap-4">
+        <div className="flex items-center gap-5">
+          {/* Brand */}
+          <Link
+            href="/dashboard"
+            className="tactile-pill flex items-center gap-2.5 group"
+          >
+            <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-primary/15 border border-primary/25 shadow-[inset_0_1px_0_rgba(255,255,255,0.15)] group-hover:bg-primary/20 transition-colors">
+              <Briefcase className="w-4 h-4 text-primary" />
             </div>
-            <div>
-              <h1 className="text-lg font-bold tracking-tight">Job Tracker</h1>
-              <p className="text-xs text-muted-foreground -mt-0.5 hidden sm:block">
-                Gmail + AI Resume Studio
-              </p>
-            </div>
+            <span className="text-sm font-semibold tracking-tight text-foreground">
+              JobFlow
+            </span>
           </Link>
 
-          {/* Navigation Links */}
-          <nav className="flex items-center gap-1 rounded-lg bg-secondary/50 p-1 border border-border/50">
+          <div className="h-4 w-px bg-white/[0.08] hidden sm:block" />
+
+          {/* Tactile Segmented Nav */}
+          <nav className="flex items-center gap-1 rounded-lg bg-secondary/50 p-1 border border-white/[0.06]">
             {navItems.map((item) => {
               const Icon = item.icon;
               return (
@@ -61,13 +63,13 @@ export function DashboardHeader() {
                   key={item.href}
                   href={item.href}
                   className={cn(
-                    "flex items-center gap-2 px-3 py-1.5 rounded-md text-xs sm:text-sm font-medium transition-all",
+                    "tactile-pill flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-medium",
                     item.active
-                      ? "bg-primary text-primary-foreground shadow-sm"
-                      : "text-muted-foreground hover:text-foreground hover:bg-background/40"
+                      ? "bg-primary text-primary-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.22),0_2px_8px_rgba(99,102,241,0.35)]"
+                      : "text-muted-foreground hover:text-foreground hover:bg-white/[0.04]"
                   )}
                 >
-                  <Icon className="h-4 w-4" />
+                  <Icon className="h-3.5 w-3.5" />
                   <span>{item.label}</span>
                 </Link>
               );
@@ -75,13 +77,13 @@ export function DashboardHeader() {
           </nav>
         </div>
 
-        {/* User menu */}
+        {/* User Menu */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <button className="flex items-center gap-3 rounded-full p-1 pr-3 hover:bg-accent transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring">
-              <Avatar className="h-8 w-8">
+            <button className="tactile-pill flex items-center gap-2.5 rounded-full py-1 pl-1 pr-3 bg-secondary/40 border border-white/[0.06] hover:border-white/[0.14] outline-none">
+              <Avatar className="h-6 w-6">
                 <AvatarImage src={user?.image || ""} alt={user?.name || ""} />
-                <AvatarFallback className="text-xs font-medium">
+                <AvatarFallback className="text-[10px] font-semibold bg-primary/20 text-indigo-200">
                   {user?.name
                     ?.split(" ")
                     .map((n) => n[0])
@@ -89,34 +91,34 @@ export function DashboardHeader() {
                     .toUpperCase() || "?"}
                 </AvatarFallback>
               </Avatar>
-              <span className="text-sm font-medium hidden md:inline-block">
-                {user?.name || "User"}
+              <span className="text-xs font-medium text-foreground/90 hidden sm:inline-block">
+                {user?.name || "Account"}
               </span>
             </button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-56">
+          <DropdownMenuContent align="end" className="w-52">
             <DropdownMenuLabel className="font-normal">
-              <div className="flex flex-col space-y-1">
-                <p className="text-sm font-medium leading-none">
+              <div className="flex flex-col space-y-0.5">
+                <p className="text-xs font-semibold leading-none">
                   {user?.name}
                 </p>
-                <p className="text-xs leading-none text-muted-foreground">
+                <p className="text-[11px] leading-none text-muted-foreground pt-1 truncate">
                   {user?.email}
                 </p>
               </div>
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
-            <DropdownMenuItem className="text-muted-foreground">
-              <Mail className="mr-2 h-4 w-4" />
-              Connected to Gmail
+            <DropdownMenuItem className="text-xs text-muted-foreground">
+              <Mail className="mr-2 h-3.5 w-3.5 text-emerald-400" />
+              Gmail Connected
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem
               onClick={() => signOut({ callbackUrl: "/" })}
-              className="text-red-400 focus:text-red-400 focus:bg-red-500/10 cursor-pointer"
+              className="text-xs text-rose-400 focus:text-rose-300 focus:bg-rose-500/10 cursor-pointer"
             >
-              <LogOut className="mr-2 h-4 w-4" />
-              Sign Out
+              <LogOut className="mr-2 h-3.5 w-3.5" />
+              Sign out
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>

@@ -1,17 +1,7 @@
 "use client";
 
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import {
-  Briefcase,
-  MessageSquareText,
-  TrendingUp,
-  Clock,
-} from "lucide-react";
+import { Card, CardContent } from "@/components/ui/card";
+import { Briefcase, MessageSquareText, TrendingUp, Clock } from "lucide-react";
 import { formatRelativeDate } from "@/lib/utils";
 
 interface Application {
@@ -19,7 +9,7 @@ interface Application {
   status: string;
   hasReply: boolean;
   appliedDate: string;
-  updatedAt: string;
+  updatedAt?: string;
 }
 
 interface StatsCardsProps {
@@ -43,76 +33,64 @@ export function StatsCards({ applications, lastSyncTime }: StatsCardsProps) {
 
   const stats = [
     {
-      title: "Total Applications",
+      title: "Applied",
       value: totalApplications,
       icon: Briefcase,
-      description: "Jobs tracked",
-      gradient: "from-violet-500/20 to-purple-600/20",
-      iconColor: "text-violet-400",
-      borderGlow: "hover:border-violet-500/30",
+      sub: "Total tracked",
+      accent: "text-indigo-400 bg-indigo-500/10 border-indigo-500/20",
     },
     {
-      title: "Replies Received",
+      title: "Replies",
       value: totalReplies,
       icon: MessageSquareText,
-      description: totalReplies > 0 ? "Conversations started" : "Awaiting responses",
-      gradient: "from-emerald-500/20 to-green-600/20",
-      iconColor: "text-emerald-400",
-      borderGlow: "hover:border-emerald-500/30",
+      sub: totalReplies > 0 ? "Active threads" : "Awaiting updates",
+      accent: "text-emerald-400 bg-emerald-500/10 border-emerald-500/20",
     },
     {
       title: "Interview Rate",
       value: `${interviewRate}%`,
       icon: TrendingUp,
-      description: "Interview + offer conversion",
-      gradient: "from-amber-500/20 to-orange-600/20",
-      iconColor: "text-amber-400",
-      borderGlow: "hover:border-amber-500/30",
+      sub: "Interviews & offers",
+      accent: "text-amber-400 bg-amber-500/10 border-amber-500/20",
     },
     {
       title: "Last Sync",
       value: lastSyncTime ? formatRelativeDate(lastSyncTime) : "Never",
       icon: Clock,
-      description: lastSyncTime
+      sub: lastSyncTime
         ? lastSyncTime.toLocaleTimeString([], {
             hour: "2-digit",
             minute: "2-digit",
           })
-        : "Click Sync to start",
-      gradient: "from-blue-500/20 to-cyan-600/20",
-      iconColor: "text-blue-400",
-      borderGlow: "hover:border-blue-500/30",
+        : "Ready to sync",
+      accent: "text-sky-400 bg-sky-500/10 border-sky-500/20",
     },
   ];
 
   return (
-    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+    <div className="grid gap-3.5 sm:grid-cols-2 lg:grid-cols-4">
       {stats.map((stat) => (
         <Card
           key={stat.title}
-          className={`relative overflow-hidden transition-all duration-300 ${stat.borderGlow} hover:shadow-lg group`}
+          className="tactile-card hover:border-white/[0.14]"
         >
-          {/* Gradient background glow */}
-          <div
-            className={`absolute inset-0 bg-gradient-to-br ${stat.gradient} opacity-0 group-hover:opacity-100 transition-opacity duration-500`}
-          />
-          <CardHeader className="relative flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              {stat.title}
-            </CardTitle>
+          <CardContent className="p-4 flex items-center justify-between gap-3">
+            <div className="space-y-1 min-w-0">
+              <p className="text-xs font-medium text-muted-foreground">
+                {stat.title}
+              </p>
+              <p className="text-2xl font-semibold tracking-tight text-foreground truncate">
+                {stat.value}
+              </p>
+              <p className="text-[11px] text-muted-foreground/80 truncate">
+                {stat.sub}
+              </p>
+            </div>
             <div
-              className={`p-2 rounded-lg bg-background/50 ${stat.iconColor}`}
+              className={`p-2.5 rounded-lg border shrink-0 ${stat.accent}`}
             >
               <stat.icon className="h-4 w-4" />
             </div>
-          </CardHeader>
-          <CardContent className="relative">
-            <div className="text-2xl font-bold tracking-tight">
-              {stat.value}
-            </div>
-            <p className="text-xs text-muted-foreground mt-1">
-              {stat.description}
-            </p>
           </CardContent>
         </Card>
       ))}
